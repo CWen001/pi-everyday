@@ -1,0 +1,52 @@
+{
+  "name": "pi-everyday",
+  "version": "0.1.0",
+  "description": "Lightweight, additive conveniences for Pi: OpenAI usage status and local file links.",
+  "type": "module",
+  "license": "MIT",
+  "author": "CWen001",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CWen001/pi-everyday.git"
+  },
+  "homepage": "https://github.com/CWen001/pi-everyday#readme",
+  "bugs": "https://github.com/CWen001/pi-everyday/issues",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "openai",
+    "codex",
+    "usage",
+    "file-links"
+  ],
+  "files": [
+    "extensions",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/path-links.test.ts tests/usage-status.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.1",
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
