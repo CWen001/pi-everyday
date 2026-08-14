@@ -3,6 +3,8 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { registerOmpPathLinks } from "../src/path-links/register-omp.ts";
 import { transformLocalFilePaths } from "../src/path-links/transform.ts";
 
 const root = join(tmpdir(), `pi-everyday-paths-${process.pid}`);
@@ -43,6 +45,28 @@ test("links an inline local directory to itself", () => {
   const result = transformLocalFilePaths("Folder: `output/nested`", root);
   assert.match(result, /^Folder: \[`output\/nested`\]\(file:\/\//);
   assert.match(result, /\/output\/nested\)$/);
+});
+
+test("OMP adapter transforms settled assistant messages", () => {
+  type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
+  const handlers = new Map<string, Handler>();
+  const pi = {
+    on(name: string, handler: Handler) {
+      handlers.set(name, handler);
+    },
+  } as unknown as ExtensionAPI;
+  const ctx = { cwd: root } as ExtensionContext;
+  const message = {
+    role: "assistant",
+    content: [{ type: "text", text: "File: `output/nested/result.txt`" }],
+  };
+
+  registerOmpPathLinks(pi);
+  handlers.get("session_start")?.({}, ctx);
+  handlers.get("message_end")?.({ message }, ctx);
+
+  assert.match(message.content[0].text, /^File: \[`output\/nested\/result\.txt`\]\(file:\/\//);
+  assert.match(message.content[0].text, /\/output\/nested\)$/);
 });
 
 test("does not alter missing paths, URLs, links, or fenced code", () => {
