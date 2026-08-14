@@ -7,7 +7,7 @@ const INLINE_CODE_RE = /`([^`\n]+)`/g;
 const MARKDOWN_LINK_RE = /(!?)\[([^\]]+)\]\(([^)\s]+)\)/g;
 const FENCED_BLOCK_RE = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
 
-function resolveLocalFile(value: string, cwd: string): string | undefined {
+function resolveLocalTarget(value: string, cwd: string): string | undefined {
   const candidate = value.trim();
   if (!candidate || candidate.includes("://") || candidate.includes("\n")) return undefined;
   if (
@@ -27,7 +27,9 @@ function resolveLocalFile(value: string, cwd: string): string | undefined {
   const absolutePath = isAbsolute(expanded) ? resolve(expanded) : resolve(cwd, expanded);
 
   try {
-    return existsSync(absolutePath) && statSync(absolutePath).isFile() ? absolutePath : undefined;
+    if (!existsSync(absolutePath)) return undefined;
+    const stat = statSync(absolutePath);
+    return stat.isDirectory() ? absolutePath : stat.isFile() ? dirname(absolutePath) : undefined;
   } catch {
     return undefined;
   }
@@ -38,8 +40,8 @@ function linkMarkdownFiles(markdown: string, cwd: string): string {
     MARKDOWN_LINK_RE,
     (full, imagePrefix: string, label: string, target: string) => {
       if (imagePrefix) return full;
-      const filePath = resolveLocalFile(target, cwd);
-      return filePath ? `[${label}](${pathToFileURL(dirname(filePath)).href})` : full;
+      const targetPath = resolveLocalTarget(target, cwd);
+      return targetPath ? `[${label}](${pathToFileURL(targetPath).href})` : full;
     },
   );
 }
@@ -50,9 +52,9 @@ function linkInlineFiles(markdown: string, cwd: string): string {
     const after = source.slice(offset + full.length);
     if (before.endsWith("[") && after.startsWith("](")) return full;
 
-    const filePath = resolveLocalFile(candidate, cwd);
-    if (!filePath) return full;
-    return `[\`${candidate}\`](${pathToFileURL(dirname(filePath)).href})`;
+    const targetPath = resolveLocalTarget(candidate, cwd);
+    if (!targetPath) return full;
+    return `[\`${candidate}\`](${pathToFileURL(targetPath).href})`;
   });
 }
 
@@ -63,9 +65,9 @@ function linkStandaloneFiles(markdown: string, cwd: string): string {
       const match = line.match(/^(\s*(?:[-*]\s+)?)(\S+)(\s*)$/u);
       if (!match || match[2]?.startsWith("[") || match[2]?.includes("://")) return line;
 
-      const filePath = resolveLocalFile(match[2] ?? "", cwd);
-      if (!filePath) return line;
-      return `${match[1]}[${match[2]}](${pathToFileURL(dirname(filePath)).href})${match[3]}`;
+      const targetPath = resolveLocalTarget(match[2] ?? "", cwd);
+      if (!targetPath) return line;
+      return `${match[1]}[${match[2]}](${pathToFileURL(targetPath).href})${match[3]}`;
     })
     .join("\n");
 }

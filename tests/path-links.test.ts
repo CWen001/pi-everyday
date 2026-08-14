@@ -39,8 +39,13 @@ test("supports spaces in backticked paths", () => {
   assert.match(result, /^\[`output\/with space\.txt`\]\(file:\/\//);
 });
 
-test("does not alter directories, missing paths, URLs, links, or fenced code", () => {
-  assert.equal(transformLocalFilePaths("`output/nested`", root), "`output/nested`");
+test("links an inline local directory to itself", () => {
+  const result = transformLocalFilePaths("Folder: `output/nested`", root);
+  assert.match(result, /^Folder: \[`output\/nested`\]\(file:\/\//);
+  assert.match(result, /\/output\/nested\)$/);
+});
+
+test("does not alter missing paths, URLs, links, or fenced code", () => {
   assert.equal(transformLocalFilePaths("`missing/file.txt`", root), "`missing/file.txt`");
   assert.equal(
     transformLocalFilePaths("`https://example.com/file.txt`", root),
