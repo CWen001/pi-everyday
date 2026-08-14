@@ -1,7 +1,7 @@
 {
   "name": "pi-everyday",
   "version": "0.1.2",
-  "description": "Lightweight, additive conveniences for Pi: OpenAI usage status and local file links.",
+  "description": "Lightweight conveniences for everyday Pi use.",
   "type": "module",
   "license": "MIT",
   "author": "CWen001",
@@ -17,21 +17,26 @@
     "openai",
     "codex",
     "usage",
-    "file-links"
+    "file-links",
+    "image-generation"
   ],
   "files": [
     "extensions",
     "src",
+    "skills/codex-image-gen",
     "README.md",
     "LICENSE"
   ],
   "pi": {
     "extensions": [
       "./extensions/index.ts"
+    ],
+    "skills": [
+      "./skills/codex-image-gen"
     ]
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test tests/path-links.test.ts tests/usage-status.test.ts",
+    "test": "node --experimental-strip-types --test tests/path-links.test.ts tests/usage-status.test.ts tests/codex-image-gen.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test"
   },
