@@ -35,7 +35,7 @@ The usage endpoint is an internal ChatGPT endpoint and may change without notice
 
 ## Local file links
 
-Only paths that currently resolve to files are linked. Directories, missing paths, URLs, fenced code blocks, and existing Markdown links are unchanged. The transformation is display-only and does not alter session history or model context.
+Only paths that currently resolve to files are linked. Existing relative Markdown file links are normalized to `file://` links for their containing folders. Directories, missing paths, URLs, Markdown image targets, and fenced code blocks are unchanged. The transformation is display-only and does not alter session history or model context.
 
 Click handling belongs to Pi and the terminal:
 

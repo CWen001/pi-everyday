@@ -4,6 +4,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const INLINE_CODE_RE = /`([^`\n]+)`/g;
+const MARKDOWN_LINK_RE = /(!?)\[([^\]]+)\]\(([^)\s]+)\)/g;
 const FENCED_BLOCK_RE = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
 
 function resolveLocalFile(value: string, cwd: string): string | undefined {
@@ -30,6 +31,17 @@ function resolveLocalFile(value: string, cwd: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function linkMarkdownFiles(markdown: string, cwd: string): string {
+  return markdown.replace(
+    MARKDOWN_LINK_RE,
+    (full, imagePrefix: string, label: string, target: string) => {
+      if (imagePrefix) return full;
+      const filePath = resolveLocalFile(target, cwd);
+      return filePath ? `[${label}](${pathToFileURL(dirname(filePath)).href})` : full;
+    },
+  );
 }
 
 function linkInlineFiles(markdown: string, cwd: string): string {
@@ -62,7 +74,9 @@ export function transformLocalFilePaths(markdown: string, cwd: string): string {
   return markdown
     .split(FENCED_BLOCK_RE)
     .map((part, index) =>
-      index % 2 === 1 ? part : linkStandaloneFiles(linkInlineFiles(part, cwd), cwd),
+      index % 2 === 1
+        ? part
+        : linkStandaloneFiles(linkInlineFiles(linkMarkdownFiles(part, cwd), cwd), cwd),
     )
     .join("");
 }

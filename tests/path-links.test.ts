@@ -22,6 +22,17 @@ test("links a standalone local file", () => {
   assert.match(result, /^\[output\/nested\/result\.txt\]\(file:\/\//);
 });
 
+test("rewrites an existing relative Markdown file link to its containing directory", () => {
+  const result = transformLocalFilePaths("[01](output/nested/result.txt)", root);
+  assert.match(result, /^\[01\]\(file:\/\//);
+  assert.match(result, /\/output\/nested\)$/);
+});
+
+test("does not rewrite Markdown image targets", () => {
+  const image = "![01](output/nested/result.txt)";
+  assert.equal(transformLocalFilePaths(image, root), image);
+});
+
 test("supports spaces in backticked paths", () => {
   writeFileSync(join(root, "output", "with space.txt"), "ok");
   const result = transformLocalFilePaths("`output/with space.txt`", root);

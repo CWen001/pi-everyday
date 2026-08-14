@@ -1,6 +1,6 @@
 {
   "name": "pi-everyday",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lightweight, additive conveniences for Pi: OpenAI usage status and local file links.",
   "type": "module",
   "license": "MIT",
