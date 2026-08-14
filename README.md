@@ -3,6 +3,7 @@
 Lightweight, additive conveniences for [Pi](https://pi.dev):
 
 - Shows remaining OpenAI Codex subscription usage as a small extension status.
+- Removes already-processed images from future model requests while preserving session history.
 - Turns existing local file paths in finalized assistant messages into links to their containing folders.
 - Generates one image through Codex's built-in `image_gen` tool.
 
@@ -11,7 +12,7 @@ Lightweight, additive conveniences for [Pi](https://pi.dev):
 `pi-everyday` is deliberately additive:
 
 - It does not replace Pi's footer or change Pi settings.
-- The extensions do not persist credentials or usage data; the image runner never reads credentials.
+- The extensions do not persist credentials or usage data; image context pruning changes only transient model requests, and the image runner never reads credentials.
 - The image skill writes only its requested output and failure diagnostics.
 - It has no runtime dependencies beyond Pi and Node.js; the optional image skill also requires your local Codex CLI.
 - Usage-status and file-link failures stay silent; image-generation failures are reported.
@@ -34,6 +35,12 @@ pi -e /path/to/pi-everyday
 When Pi has an `openai-codex` OAuth login, the package requests subscription usage at startup and refreshes after turns with a five-minute cooldown. A status such as `5h 82% left (3h 55m) · 7d 60% left (5d 15h)` is added without replacing Pi's default footer.
 
 The usage endpoint is an internal ChatGPT endpoint and may change without notice. The access token and account identifier are used only for the request and are never persisted by this package.
+
+## Image context pruning
+
+Images introduced during the current turn remain available to the model. On later turns, their image data is replaced in the outbound context with a short instruction to re-read the original path or ask for the image again. Text, tool calls, and the session JSONL remain unchanged.
+
+This keeps image-heavy sessions responsive. A historical image without a reusable file path must be reattached when deeper visual analysis is needed.
 
 ## Local file links
 

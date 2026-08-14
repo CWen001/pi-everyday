@@ -36,7 +36,7 @@
     ]
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test tests/path-links.test.ts tests/usage-status.test.ts tests/codex-image-gen.test.ts",
+    "test": "node --experimental-strip-types --test tests/path-links.test.ts tests/usage-status.test.ts tests/codex-image-gen.test.ts tests/image-context.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test"
   },
