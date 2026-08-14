@@ -14,6 +14,20 @@ function windowLabel(seconds: number | undefined): string {
   return `${Math.round(seconds)}s`;
 }
 
+function remainingTimeLabel(seconds: number): string {
+  const minutes = Math.max(0, Math.floor(seconds / 60));
+  const parts = [
+    [Math.floor(minutes / 1440), "d"],
+    [Math.floor((minutes % 1440) / 60), "h"],
+    [minutes % 60, "m"],
+  ] as const;
+  return parts
+    .filter(([value]) => value > 0)
+    .slice(0, 2)
+    .map(([value, unit]) => `${value}${unit}`)
+    .join(" ") || "0m";
+}
+
 export function formatUsageStatus(snapshot: UsageSnapshot): string | undefined {
   let activeWindows = windows(snapshot.rateLimit);
   if (activeWindows.length === 0) {
@@ -21,7 +35,12 @@ export function formatUsageStatus(snapshot: UsageSnapshot): string | undefined {
   }
   if (activeWindows.length === 0) return undefined;
 
-  return `quota ${activeWindows
-    .map((window) => `${Math.round(window.remainingPercent)}%/${windowLabel(window.windowSeconds)}`)
-    .join(" ")}`;
+  return activeWindows
+    .map((window) => {
+      const reset = window.resetAfterSeconds;
+      return `${windowLabel(window.windowSeconds)} ${Math.round(window.remainingPercent)}% left${
+        reset === undefined ? "" : ` (${remainingTimeLabel(reset)})`
+      }`;
+    })
+    .join(" · ");
 }

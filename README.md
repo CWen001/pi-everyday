@@ -31,7 +31,7 @@ pi -e /path/to/pi-everyday
 
 ## OpenAI usage status
 
-When Pi has an `openai-codex` OAuth login, the package requests subscription usage at startup and refreshes after turns with a five-minute cooldown. A compact status such as `quota 82%/5h 60%/7d` is added without replacing Pi's default footer.
+When Pi has an `openai-codex` OAuth login, the package requests subscription usage at startup and refreshes after turns with a five-minute cooldown. A status such as `5h 82% left (3h 55m) · 7d 60% left (5d 15h)` is added without replacing Pi's default footer.
 
 The usage endpoint is an internal ChatGPT endpoint and may change without notice. The access token and account identifier are used only for the request and are never persisted by this package.
 

@@ -9,18 +9,26 @@ import type { UsageSource } from "../src/usage-status/types.ts";
 test("parses and formats primary usage windows", () => {
   const snapshot = parseUsagePayload({
     rate_limit: {
-      primary_window: { used_percent: 18.4, limit_window_seconds: 18000 },
-      secondary_window: { used_percent: 40, limit_window_seconds: 604800 },
+      primary_window: {
+        used_percent: 18.4,
+        limit_window_seconds: 18000,
+        reset_after_seconds: 14100,
+      },
+      secondary_window: {
+        used_percent: 40,
+        limit_window_seconds: 604800,
+        reset_after_seconds: 486000,
+      },
     },
   });
-  assert.equal(formatUsageStatus(snapshot), "quota 82%/5h 60%/7d");
+  assert.equal(formatUsageStatus(snapshot), "5h 82% left (3h 55m) · 7d 60% left (5d 15h)");
 });
 
 test("clamps malformed percentages", () => {
   const snapshot = parseUsagePayload({
     rate_limit: { primary_window: { used_percent: 120, limit_window_seconds: 3600 } },
   });
-  assert.equal(formatUsageStatus(snapshot), "quota 0%/1h");
+  assert.equal(formatUsageStatus(snapshot), "1h 0% left");
 });
 
 test("registers an additive status with cooldown and no footer replacement", async () => {
@@ -61,7 +69,7 @@ test("registers an additive status with cooldown and no footer replacement", asy
   registerUsageStatus(pi, { now: () => clock, sourceFactory: () => source });
   await handlers.get("session_start")?.({}, ctx);
   assert.equal(loadCount, 1);
-  assert.equal(statuses.at(-1), "quota 75%/5h");
+  assert.equal(statuses.at(-1), "5h 75% left");
 
   await handlers.get("turn_end")?.({}, ctx);
   assert.equal(loadCount, 1, "refresh is suppressed during the cooldown");
