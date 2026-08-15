@@ -16,9 +16,5 @@ export default function piEveryday(pi: ExtensionAPI): void {
     // An optional convenience must never prevent Pi from starting.
   }
 
-  try {
-    registerPathLinks(pi);
-  } catch {
-    // Keep each enhancement isolated from the other.
-  }
+  registerPathLinks(pi);
 }

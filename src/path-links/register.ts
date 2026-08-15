@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { transformLocalFilePaths } from "./transform.ts";
+import { renderPathLinks } from "./transform.ts";
 
 export function registerPathLinks(pi: ExtensionAPI): void {
   let cwd = process.cwd();
@@ -10,6 +10,6 @@ export function registerPathLinks(pi: ExtensionAPI): void {
 
   pi.registerMarkdownTransformer((markdown, context) => {
     if (context.messageType !== "assistant" || context.isStreaming) return markdown;
-    return transformLocalFilePaths(markdown, cwd);
+    return renderPathLinks({ markdown, cwd });
   });
 }

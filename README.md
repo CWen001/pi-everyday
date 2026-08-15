@@ -1,6 +1,6 @@
 # pi-everyday
 
-Lightweight, additive conveniences for [Pi](https://pi.dev):
+Lightweight, additive conveniences for [Pi](https://pi.dev), with local path links also packaged for OMP:
 
 - Shows remaining OpenAI Codex subscription usage as a small extension status.
 - Removes already-processed images from future model requests while preserving session history.
@@ -14,8 +14,8 @@ Lightweight, additive conveniences for [Pi](https://pi.dev):
 - It does not replace Pi's footer or change Pi settings.
 - The extensions do not persist credentials or usage data; image context pruning changes only transient model requests, and the image runner never reads credentials.
 - The image skill writes only its requested output and failure diagnostics.
-- It has no runtime dependencies beyond Pi and Node.js; the optional image skill also requires your local Codex CLI.
-- Usage-status and file-link failures stay silent; image-generation failures are reported.
+- It has no runtime dependencies beyond the host and Node.js; the optional image skill also requires your local Codex CLI.
+- Usage-status failures stay silent. Path-link registration fails visibly when the host lacks a display-only Markdown seam; image-generation failures are reported.
 - Removing the package stops its behavior. Generated images and diagnostics remain until you delete them.
 
 ## Install
@@ -23,6 +23,14 @@ Lightweight, additive conveniences for [Pi](https://pi.dev):
 ```bash
 pi install npm:pi-everyday
 ```
+
+OMP installs the same package through its own plugin registry:
+
+```bash
+omp plugin install pi-everyday
+```
+
+OMP path links require a build that provides `registerAssistantTextTransformer`. Older builds reject the extension instead of loading an inert `message_end` workaround.
 
 To try a local checkout without installing it:
 
@@ -46,10 +54,10 @@ This keeps image-heavy sessions responsive. A historical image without a reusabl
 
 Existing local files and directories are linked to their containing folder or to themselves, respectively. Relative Markdown links are normalized to absolute `file://` links. A `text` fence containing only existing path lines is rendered as a clickable path list; source-code fences and mixed prose/path fences remain unchanged. Missing paths, URLs, and Markdown image targets are unchanged. The transformation is display-only and does not alter session history or model context.
 
-Click dispatch belongs to Pi or the terminal:
+Path recognition and resolution stay inside this package. Pi and OMP provide display-only Markdown Adapter seams; neither session history nor model context is mutated. The terminal owns only the final URI dispatch:
 
-- Pi fullscreen mode opens OSC 8 links directly.
-- In regular mode, the terminal must route `file://` URIs to the OS file handler. WezTerm can do this with an `open-uri` callback and `wezterm.open_with(wezterm.url.parse(uri).file_path)`.
+- Enable OSC 8 hyperlinks in the host (`tui.hyperlinks: always` in OMP when terminal detection is unreliable).
+- Route `file://` URIs to the OS file handler. WezTerm can do this with an `open-uri` callback and `wezterm.open_with(wezterm.url.parse(uri).file_path)`.
 - A terminal that captures application mouse input may require its hyperlink bypass modifier.
 
 ## Codex image generation
@@ -63,6 +71,7 @@ Default outputs and failure diagnostics go under `.scratch/`, which is git-ignor
 ## Compatibility
 
 - Pi 0.84.1 or newer
+- OMP with display-only assistant text transformer support
 - Node.js 22.19.0 or newer
 - macOS, Windows, and Linux
 

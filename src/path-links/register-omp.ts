@@ -1,20 +1,40 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { transformLocalFilePaths } from "./transform.ts";
+import { renderPathLinks } from "./transform.ts";
 
-/** Register path links through OMP's settled-message event API. */
-export function registerOmpPathLinks(pi: ExtensionAPI): void {
+type SessionStartHandler = (event: unknown, context: { cwd: string }) => void;
+type AssistantTextTransformer = (markdown: string, context: { isStreaming: boolean }) => string;
+
+interface OmpPathLinkHost {
+  on(event: "session_start", handler: SessionStartHandler): void;
+  registerAssistantTextTransformer(transformer: AssistantTextTransformer): void;
+}
+
+function requireOmpPathLinkHost(value: unknown): OmpPathLinkHost {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !("on" in value) ||
+    typeof value.on !== "function" ||
+    !("registerAssistantTextTransformer" in value) ||
+    typeof value.registerAssistantTextTransformer !== "function"
+  ) {
+    throw new Error(
+      "pi-everyday path links require OMP display-only assistant text transformers; message_end snapshots are unsupported",
+    );
+  }
+  return value as OmpPathLinkHost;
+}
+
+/** Register path links at OMP's display-only assistant Markdown seam. */
+export function registerOmpPathLinks(api: unknown): void {
+  const omp = requireOmpPathLinkHost(api);
   let cwd = process.cwd();
 
-  pi.on("session_start", (_event, ctx) => {
-    cwd = ctx.cwd;
+  omp.on("session_start", (_event, context) => {
+    cwd = context.cwd;
   });
 
-  pi.on("message_end", (event) => {
-    if (event.message.role !== "assistant") return;
-
-    for (const content of event.message.content) {
-      if (content.type !== "text") continue;
-      content.text = transformLocalFilePaths(content.text, cwd);
-    }
+  omp.registerAssistantTextTransformer((markdown, context) => {
+    if (context.isStreaming) return markdown;
+    return renderPathLinks({ markdown, cwd });
   });
 }
