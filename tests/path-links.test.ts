@@ -69,7 +69,7 @@ test("OMP adapter transforms settled assistant messages", () => {
   assert.match(message.content[0].text, /\/output\/nested\)$/);
 });
 
-test("does not alter missing paths, URLs, links, or fenced code", () => {
+test("does not alter missing paths, URLs, links, or source-code fences", () => {
   assert.equal(transformLocalFilePaths("`missing/file.txt`", root), "`missing/file.txt`");
   assert.equal(
     transformLocalFilePaths("`https://example.com/file.txt`", root),
@@ -77,6 +77,27 @@ test("does not alter missing paths, URLs, links, or fenced code", () => {
   );
   const existing = "[`output/nested/result.txt`](https://example.com)";
   assert.equal(transformLocalFilePaths(existing, root), existing);
-  const fenced = "```text\noutput/nested/result.txt\n```";
+  const fenced = '```ts\nconst path = "output/nested/result.txt";\n```';
+  assert.equal(transformLocalFilePaths(fenced, root), fenced);
+});
+
+test("links a local directory in a text fence", () => {
+  const result = transformLocalFilePaths("```text\noutput/nested/\n```", root);
+
+  assert.match(result, /^\[output\/nested\/\]\(file:\/\/.*\/output\/nested\)$/);
+});
+
+test("links every local path in a text path-list fence", () => {
+  const result = transformLocalFilePaths(
+    "```text\noutput/nested/result.txt\noutput/nested/\n```",
+    root,
+  );
+
+  assert.match(result, /^\[output\/nested\/result\.txt\]\(file:\/\/.*\/output\/nested\)\n/);
+  assert.match(result, /\[output\/nested\/\]\(file:\/\/.*\/output\/nested\)$/);
+});
+
+test("preserves a text fence containing non-path prose", () => {
+  const fenced = "```text\nArtifacts:\noutput/nested/\n```";
   assert.equal(transformLocalFilePaths(fenced, root), fenced);
 });

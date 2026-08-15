@@ -44,13 +44,13 @@ This keeps image-heavy sessions responsive. A historical image without a reusabl
 
 ## Local file links
 
-Only paths that currently resolve to files are linked. Existing relative Markdown file links are normalized to `file://` links for their containing folders. Directories, missing paths, URLs, Markdown image targets, and fenced code blocks are unchanged. The transformation is display-only and does not alter session history or model context.
+Existing local files and directories are linked to their containing folder or to themselves, respectively. Relative Markdown links are normalized to absolute `file://` links. A `text` fence containing only existing path lines is rendered as a clickable path list; source-code fences and mixed prose/path fences remain unchanged. Missing paths, URLs, and Markdown image targets are unchanged. The transformation is display-only and does not alter session history or model context.
 
-Click handling belongs to Pi and the terminal:
+Click dispatch belongs to Pi or the terminal:
 
-- Pi fullscreen mode supports a direct click.
-- Regular terminal mode may require the terminal's hyperlink modifier, such as Shift+click in WezTerm.
-- Windows terminals may use Ctrl+click.
+- Pi fullscreen mode opens OSC 8 links directly.
+- In regular mode, the terminal must route `file://` URIs to the OS file handler. WezTerm can do this with an `open-uri` callback and `wezterm.open_with(wezterm.url.parse(uri).file_path)`.
+- A terminal that captures application mouse input may require its hyperlink bypass modifier.
 
 ## Codex image generation
 

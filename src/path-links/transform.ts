@@ -72,8 +72,29 @@ function linkStandaloneFiles(markdown: string, cwd: string): string {
     .join("\n");
 }
 
+function linkTextPathListFences(markdown: string, cwd: string): string {
+  return markdown.replace(FENCED_BLOCK_RE, (fence) => {
+    const lines = fence.split("\n");
+    const opening = /^ {0,3}(```|~~~)\s*text\s*$/iu.exec(lines[0] ?? "");
+    if (!opening || lines.at(-1)?.trim() !== opening[1]) return fence;
+
+    const body = lines.slice(1, -1);
+    let linkedPathCount = 0;
+    const linkedBody = body.map((line) => {
+      if (!line.trim()) return line;
+      const linked = linkStandaloneFiles(line, cwd);
+      if (linked === line) return undefined;
+      linkedPathCount++;
+      return linked;
+    });
+
+    if (linkedPathCount === 0 || linkedBody.some((line) => line === undefined)) return fence;
+    return linkedBody.join("\n");
+  });
+}
+
 export function transformLocalFilePaths(markdown: string, cwd: string): string {
-  return markdown
+  return linkTextPathListFences(markdown, cwd)
     .split(FENCED_BLOCK_RE)
     .map((part, index) =>
       index % 2 === 1
