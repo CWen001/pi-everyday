@@ -178,11 +178,11 @@ test("OMP adapter transforms streaming and finalized assistant display", () => {
   );
 });
 
-test("OMP adapter rejects hosts without a display transformer", () => {
-  assert.throws(
-    () => registerOmpPathLinks({ on() {} }),
-    /display-only assistant text transformers/,
-  );
+test("OMP adapter leaves unsupported hosts untouched", () => {
+  let subscribed = false;
+
+  assert.doesNotThrow(() => registerOmpPathLinks({ on() { subscribed = true; } }));
+  assert.equal(subscribed, false);
 });
 
 test("does not alter missing paths, URLs, links, or source-code fences", () => {

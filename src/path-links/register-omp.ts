@@ -8,7 +8,7 @@ interface OmpPathLinkHost {
   registerAssistantTextTransformer(transformer: AssistantTextTransformer): void;
 }
 
-function requireOmpPathLinkHost(value: unknown): OmpPathLinkHost {
+function getOmpPathLinkHost(value: unknown): OmpPathLinkHost | undefined {
   if (
     !value ||
     typeof value !== "object" ||
@@ -16,17 +16,14 @@ function requireOmpPathLinkHost(value: unknown): OmpPathLinkHost {
     typeof value.on !== "function" ||
     !("registerAssistantTextTransformer" in value) ||
     typeof value.registerAssistantTextTransformer !== "function"
-  ) {
-    throw new Error(
-      "pi-everyday path links require OMP display-only assistant text transformers; message_end snapshots are unsupported",
-    );
-  }
+  ) return;
   return value as OmpPathLinkHost;
 }
 
 /** Register path links at OMP's display-only assistant Markdown seam. */
 export function registerOmpPathLinks(api: unknown): void {
-  const omp = requireOmpPathLinkHost(api);
+  const omp = getOmpPathLinkHost(api);
+  if (!omp) return;
   let cwd = process.cwd();
 
   omp.on("session_start", (_event, context) => {
