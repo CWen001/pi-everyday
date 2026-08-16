@@ -23,6 +23,7 @@
     "extensions",
     "src",
     "skills/codex-image-gen",
+    "recipes/ephemeral-delegation",
     "README.md",
     "LICENSE"
   ],

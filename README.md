@@ -6,6 +6,7 @@ Small, additive conveniences for [Pi](https://pi.dev):
 - Keep old images out of future model requests without changing session history.
 - Turn existing local paths in assistant output into Path Links.
 - Generate one audited image through Codex's built-in `image_gen` tool.
+- Carry an opt-in recipe for temporary Pi delegation through Herdr.
 
 This package is primarily maintained for personal use. Public use is welcome, but maintenance and compatibility are best effort.
 
@@ -66,6 +67,10 @@ Run the skill in Pi:
 Provide a prompt and, optionally, one reference image and an output such as `./output/image.png`. The skill runs the local `codex` command in a constrained Image Run, audits its Rollout, and transfers exactly one verified artifact.
 
 There are no automatic retries, fallback providers, or additional image requests.
+
+### Ephemeral delegation recipe
+
+[`recipes/ephemeral-delegation/`](recipes/ephemeral-delegation/) contains an inactive, manually installed global rule for bounded research and review workers in Herdr. Read its README before copying it into Pi's global configuration. It is packaged for portability but does not load automatically.
 
 ## Privacy and security
 
