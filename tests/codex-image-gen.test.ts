@@ -65,10 +65,11 @@ const events = [
   { type: "world_state", payload: { full: true, state: {} } },
   { type: "event_msg", payload: { type: "image_generation_end", call_id: "ig_test", status: "completed", saved_path: artifact } }
 ];
-if (process.env.FAKE_CODEX_SCENARIO === "legacy-call") {
+const customScenarios = ["custom-call", "computed-tool-call", "missing-custom-call-id"];
+if (!customScenarios.includes(process.env.FAKE_CODEX_SCENARIO)) {
   events.splice(1, 0, { type: "response_item", payload: { type: "image_generation_call", id: "ig_test", status: "generating" } });
 }
-if (["custom-call", "computed-tool-call", "missing-custom-call-id"].includes(process.env.FAKE_CODEX_SCENARIO)) {
+if (customScenarios.includes(process.env.FAKE_CODEX_SCENARIO)) {
   const input = process.env.FAKE_CODEX_SCENARIO === "computed-tool-call"
     ? '// @exec: {"yield_time_ms": 120000}\\nconst result = await tools.image_gen__imagegen({prompt:tools["other_tool"]()});\\ngeneratedImage(result);'
     : '// @exec: {"yield_time_ms": 120000}\\nconst result = await tools.image_gen__imagegen({"prompt":"kite"});\\ngeneratedImage(result);';
