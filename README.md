@@ -1,89 +1,157 @@
 # pi-everyday
 
-Lightweight, additive conveniences for [Pi](https://pi.dev), with local path links also packaged for OMP:
+Small, additive conveniences for [Pi](https://pi.dev):
 
-- Shows remaining OpenAI Codex subscription usage as a small extension status.
-- Removes already-processed images from future model requests while preserving session history.
-- Turns existing local file paths in assistant display text into links to their containing folders.
-- Generates one image through Codex's built-in `image_gen` tool.
+- Show remaining OpenAI Codex subscription usage.
+- Keep old images out of future model requests without changing session history.
+- Turn existing local paths in assistant output into Path Links.
+- Generate one audited image through Codex's built-in `image_gen` tool.
 
-## Design promises
+This package is primarily maintained for personal use. Public use is welcome, but maintenance and compatibility are best effort.
 
-`pi-everyday` is deliberately additive:
+## Quick start
 
-- It does not replace Pi's footer or change Pi settings.
-- The extensions do not persist credentials or usage data; image context pruning changes only transient model requests, and the image runner never reads credentials.
-- The image skill writes only its requested output and failure diagnostics.
-- It has no runtime dependencies beyond the host and Node.js; the optional image skill also requires your local Codex CLI.
-- Usage-status failures stay silent. Path-link registration fails visibly when the host lacks a display-only Markdown seam; image-generation failures are reported.
-- Removing the package stops its behavior. Generated images and diagnostics remain until you delete them.
-
-## Install
+Install globally:
 
 ```bash
 pi install npm:pi-everyday
 ```
 
-OMP installs the same package through its own plugin registry:
+Start Pi normally. The extensions load automatically.
+
+To try the package for one session without installing it:
 
 ```bash
-omp plugin install pi-everyday
+pi -e npm:pi-everyday
 ```
 
-OMP path links require a build that provides `registerAssistantTextTransformer`. Older builds reject the extension instead of loading an inert `message_end` workaround.
+Pi packages execute with the same system access as Pi. Review the source before installing packages you do not trust.
 
-To try a local checkout without installing it:
+## Features
+
+### OpenAI usage status
+
+When Pi has an `openai-codex` OAuth login, a compact status shows the remaining primary and secondary subscription windows. It refreshes after turns with a five-minute cooldown and does not replace Pi's footer.
+
+If the internal OpenAI usage endpoint is unavailable or changes, the status stays silent.
+
+### Image context pruning
+
+Images introduced during the current turn remain available to the model. On later turns, their image data is replaced only in the outbound model context with a short instruction to re-read the original path or request the image again.
+
+Session history, text, tool calls, and saved JSONL remain unchanged. An old image without a reusable path must be attached again for further visual analysis.
+
+### Path Links
+
+Path Rendering turns supported existing local paths into terminal links:
+
+- A file links to its containing directory.
+- A directory links to itself.
+- Inline-code paths, standalone path lines, and existing non-image Markdown links are supported.
+- Relative, `~/`, and absolute paths work in normal assistant output.
+- Custom Markdown views receive absolute Path Links only because their working directory is unknown.
+
+For example, Pi can render generic paths such as `./output/result.txt`, `~/project`, or `/path/to/project` as actions when they exist. Missing paths, URLs, Markdown images, and every fenced block remain unchanged.
+
+Path Rendering affects display only. It does not alter session history or model context.
+
+### Codex image generation
+
+Run the skill in Pi:
+
+```text
+/skill:codex-image-gen
+```
+
+Provide a prompt and, optionally, one reference image and an output such as `./output/image.png`. The skill runs the local `codex` command in a constrained Image Run, audits its Rollout, and transfers exactly one verified artifact.
+
+There are no automatic retries, fallback providers, or additional image requests.
+
+## Privacy and security
+
+- The package includes no telemetry.
+- Usage status uses the active OpenAI OAuth token only for an in-memory request to the internal usage endpoint. It does not persist the token or account identifier.
+- Path Rendering checks whether candidate paths exist and whether they are files or directories. It does not read file contents or send paths to a remote service.
+- Image context pruning changes only the transient outbound model request. Saved session history is not rewritten.
+- An Image Run sends its prompt and optional reference image to OpenAI through the locally installed Codex CLI and consumes the account's image allowance.
+- Codex owns its login and keeps its normal session records under `CODEX_HOME`. The package does not read or store Codex credentials.
+- Image failure diagnostics and Codex records can contain prompts and local paths. Review them before sharing.
+
+Default generated images and diagnostics use `.scratch/`, which should remain excluded from version control.
+
+## Compatibility and limitations
+
+- Pi 0.84.1 or newer.
+- Node.js 22.19.0 or newer.
+- macOS, Windows, and Linux.
+- Path Links require a terminal that supports OSC 8 hyperlinks and `file://` URI handling.
+- Some terminals capture mouse input and require their hyperlink modifier while clicking.
+- Usage status depends on an undocumented OpenAI endpoint and can stop working without notice.
+- Image generation requires a compatible, authenticated local Codex CLI.
+- Generated images and diagnostics remain after package removal until deleted manually.
+
+Automated checks run on macOS, Windows, and Linux. Pointer behavior can still vary by terminal.
+
+## Troubleshooting
+
+### Path Links render but do not open
+
+Confirm that the terminal enables OSC 8 hyperlinks and routes `file://` URIs to the operating system. Try the terminal's normal hyperlink modifier while clicking.
+
+### Usage status is absent
+
+Confirm that Pi has an active `openai-codex` OAuth login. Endpoint failures intentionally remain silent.
+
+### Image generation fails before starting
+
+Confirm that the local CLI is available and authenticated:
 
 ```bash
-pi -e /path/to/pi-everyday
+codex --version
+codex login
 ```
 
-## OpenAI usage status
+Failure output includes the diagnostic location when one can be written. Diagnostics may contain prompts and local paths.
 
-When Pi has an `openai-codex` OAuth login, the package requests subscription usage at startup and refreshes after turns with a five-minute cooldown. A status such as `5h 82% left (3h 55m) · 7d 60% left (5d 15h)` is added without replacing Pi's default footer.
+For reproducible defects, open the package's configured issue tracker:
 
-The usage endpoint is an internal ChatGPT endpoint and may change without notice. The access token and account identifier are used only for the request and are never persisted by this package.
+```bash
+npm bugs pi-everyday
+```
 
-## Image context pruning
+## Update and remove
 
-Images introduced during the current turn remain available to the model. On later turns, their image data is replaced in the outbound context with a short instruction to re-read the original path or ask for the image again. Text, tool calls, and the session JSONL remain unchanged.
+Update this package:
 
-This keeps image-heavy sessions responsive. A historical image without a reusable file path must be reattached when deeper visual analysis is needed.
+```bash
+pi update npm:pi-everyday
+```
 
-## Path Links
+Update all installed Pi packages:
 
-Path Rendering links existing local files to their containing folders and local directories to themselves. OMP transforms complete paths as soon as they appear in streaming output; Pi transforms finalized assistant Markdown. Inline-code paths, standalone path lines, and existing non-image Markdown links support relative, `~/`, and absolute paths. Every fenced block remains unchanged. Missing paths, URLs, and Markdown image targets are also unchanged. Path Rendering is display-only and does not alter session history or model context.
+```bash
+pi update --extensions
+```
 
-Path recognition and resolution stay inside this package. Pi's normal assistant interface and its shared Markdown rendering seam are overlaid so custom views from packages such as `pi-subagents` receive Path Links for absolute paths without modifying those packages or guessing their working directories. OMP uses its display-only assistant interface. Neither session history nor model context is mutated. The terminal owns only the final URI dispatch:
+Remove it:
 
-- Enable OSC 8 hyperlinks in the host (`tui.hyperlinks: always` in OMP when terminal detection is unreliable).
-- Route `file://` URIs to the OS file handler. WezTerm can do this with an `open-uri` callback and `wezterm.open_with(wezterm.url.parse(uri).file_path)`.
-- A terminal that captures application mouse input may require its hyperlink bypass modifier.
+```bash
+pi remove npm:pi-everyday
+```
 
-## Codex image generation
-
-Run `/skill:codex-image-gen` in Pi with a prompt, optionally one reference image and an output path. The skill runs your local `codex` command with user configuration ignored, non-image features disabled, and a read-only sandbox, then audits the recorded run before moving the generated image.
-
-Codex handles its own login; this package never reads or stores subscription credentials. Prompts and reference images are sent to OpenAI and consume your Codex image allowance. Codex also keeps its normal local session records under `CODEX_HOME`; failed audits can leave generated artifacts there.
-
-Default outputs and failure diagnostics go under `.scratch/`, which is git-ignored. Diagnostics and Codex session records can contain prompts and local paths, so do not share them blindly.
-
-## Compatibility
-
-- Pi 0.84.1 or newer
-- OMP with display-only assistant text transformer support
-- Node.js 22.19.0 or newer
-- macOS, Windows, and Linux
-
-Automated tests run on all three operating systems. Real pointer interaction is currently verified on macOS; terminal gestures can vary by terminal configuration.
+Removing the package stops its extensions but does not delete generated images or diagnostics.
 
 ## Development
 
 ```bash
+git clone <repository-url>
+cd pi-everyday
 npm install
 npm run check
 pi -e .
 ```
+
+Do not commit credentials, generated images, diagnostics, local paths, or session logs.
 
 ## License
 
