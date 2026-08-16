@@ -50,11 +50,11 @@ Images introduced during the current turn remain available to the model. On late
 
 This keeps image-heavy sessions responsive. A historical image without a reusable file path must be reattached when deeper visual analysis is needed.
 
-## Local file links
+## Path Links
 
-Existing local files and directories are linked to their containing folder or to themselves, respectively. OMP transforms complete paths as soon as they appear in streaming output; Pi transforms finalized assistant Markdown. Relative Markdown links are normalized to absolute `file://` links. A `text` fence containing only existing path lines is rendered as a clickable path list; source-code fences and mixed prose/path fences remain unchanged. Missing paths, URLs, and Markdown image targets are unchanged. The transformation is display-only and does not alter session history or model context.
+Path Rendering links existing local files to their containing folders and local directories to themselves. OMP transforms complete paths as soon as they appear in streaming output; Pi transforms finalized assistant Markdown. Inline-code paths, standalone path lines, and existing non-image Markdown links support relative, `~/`, and absolute paths. Every fenced block remains unchanged. Missing paths, URLs, and Markdown image targets are also unchanged. Path Rendering is display-only and does not alter session history or model context.
 
-Path recognition and resolution stay inside this package. Pi and OMP provide display-only Markdown Adapter seams; neither session history nor model context is mutated. The terminal owns only the final URI dispatch:
+Path recognition and resolution stay inside this package. Pi's normal assistant interface and its shared Markdown rendering seam are overlaid so custom views from packages such as `pi-subagents` receive Path Links for absolute paths without modifying those packages or guessing their working directories. OMP uses its display-only assistant interface. Neither session history nor model context is mutated. The terminal owns only the final URI dispatch:
 
 - Enable OSC 8 hyperlinks in the host (`tui.hyperlinks: always` in OMP when terminal detection is unreliable).
 - Route `file://` URIs to the OS file handler. WezTerm can do this with an `open-uri` callback and `wezterm.open_with(wezterm.url.parse(uri).file_path)`.

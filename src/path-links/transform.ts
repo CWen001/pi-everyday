@@ -31,12 +31,18 @@ function isMissingPathError(error: unknown): boolean {
   return error.code === "ENOENT" || error.code === "ENOTDIR";
 }
 
-function createTargetResolver(cwd: string): ResolveTarget {
+function createTargetResolver(cwd?: string): ResolveTarget {
   const cache = new Map<string, string | undefined>();
 
   return (value) => {
     const candidate = value.trim();
-    if (!candidate || candidate.includes("://") || candidate.includes("\n") || candidate.includes("\0")) {
+    if (
+      !candidate ||
+      candidate.includes("://") ||
+      candidate.includes("\n") ||
+      candidate.includes("\0") ||
+      (cwd === undefined && !isAbsolute(candidate))
+    ) {
       return undefined;
     }
     if (
@@ -52,7 +58,12 @@ function createTargetResolver(cwd: string): ResolveTarget {
     if (cache.has(candidate)) return cache.get(candidate);
 
     const expanded = candidate.startsWith("~/") ? resolve(homedir(), candidate.slice(2)) : candidate;
-    const absolutePath = isAbsolute(expanded) ? resolve(expanded) : resolve(cwd, expanded);
+    let absolutePath: string;
+    if (isAbsolute(expanded)) absolutePath = resolve(expanded);
+    else {
+      if (cwd === undefined) return undefined;
+      absolutePath = resolve(cwd, expanded);
+    }
 
     try {
       const stat = statSync(absolutePath);
@@ -114,34 +125,6 @@ function closingFenceMatches(line: string, opening: string): boolean {
   return Boolean(match && match[1]?.[0] === marker && match[1].length >= opening.length);
 }
 
-function transformTextFence(
-  bodyLines: string[],
-  closingHasNewline: boolean,
-  resolveTarget: ResolveTarget,
-): string | undefined {
-  let linkedCount = 0;
-  const linkedLines: string[] = [];
-
-  for (const rawLine of bodyLines) {
-    const hasNewline = rawLine.endsWith("\n");
-    const line = hasNewline ? rawLine.slice(0, -1) : rawLine;
-    if (!line.trim()) {
-      linkedLines.push(rawLine);
-      continue;
-    }
-
-    const linked = linkStandaloneLines(line, resolveTarget);
-    if (linked === line) return undefined;
-    linkedCount++;
-    linkedLines.push(linked + (hasNewline ? "\n" : ""));
-  }
-
-  if (linkedCount === 0) return undefined;
-  let result = linkedLines.join("");
-  if (result.endsWith("\n")) result = result.slice(0, -1);
-  return result + (closingHasNewline ? "\n" : "");
-}
-
 function transformFencedMarkdown(markdown: string, resolveTarget: ResolveTarget): string {
   const lines = markdown.match(/[^\n]*(?:\n|$)/gu)?.filter((line) => line.length > 0) ?? [];
   const output: string[] = [];
@@ -160,17 +143,13 @@ function transformFencedMarkdown(markdown: string, resolveTarget: ResolveTarget)
       if (closingFenceMatches(closingText, opening[1])) break;
       closingIndex++;
     }
-    if (closingIndex >= lines.length) continue;
-
     output.push(transformOrdinaryMarkdown(lines.slice(ordinaryStart, index).join(""), resolveTarget));
-    const fence = lines.slice(index, closingIndex + 1).join("");
-    const info = opening[2]?.trim().toLowerCase();
-    const closingLine = lines[closingIndex] ?? "";
-    const linkedFence =
-      info === "text"
-        ? transformTextFence(lines.slice(index + 1, closingIndex), closingLine.endsWith("\n"), resolveTarget)
-        : undefined;
-    output.push(linkedFence ?? fence);
+    if (closingIndex >= lines.length) {
+      output.push(lines.slice(index).join(""));
+      ordinaryStart = lines.length;
+      break;
+    }
+    output.push(lines.slice(index, closingIndex + 1).join(""));
 
     index = closingIndex;
     ordinaryStart = closingIndex + 1;
@@ -180,11 +159,20 @@ function transformFencedMarkdown(markdown: string, resolveTarget: ResolveTarget)
   return output.join("");
 }
 
-/** Produce display Markdown with clickable links for existing local paths. */
+function render(markdown: string, resolveTarget: ResolveTarget): string {
+  if (!markdown) return markdown;
+  return transformFencedMarkdown(markdown, resolveTarget);
+}
+
+/** Produce display Markdown containing Path Links for existing local paths. */
 export function renderPathLinks(input: FinalAssistantMarkdown): string {
   if (!isAbsolute(input.cwd)) {
     throw new PathLinkInputError("Path-link rendering requires an absolute session cwd");
   }
-  if (!input.markdown) return input.markdown;
-  return transformFencedMarkdown(input.markdown, createTargetResolver(input.cwd));
+  return render(input.markdown, createTargetResolver(input.cwd));
+}
+
+/** @internal Render absolute Path Links for shared host Markdown without cwd inference. */
+export function renderAbsolutePathLinks(markdown: string): string {
+  return render(markdown, createTargetResolver());
 }
