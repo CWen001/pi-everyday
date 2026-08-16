@@ -83,7 +83,7 @@ test("Pi adapter transforms only finalized assistant Markdown", () => {
   );
 });
 
-test("OMP adapter uses the display-only assistant transformer seam", () => {
+test("OMP adapter transforms streaming and finalized assistant display", () => {
   type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
   type Transformer = (markdown: string, context: { isStreaming: boolean }) => string;
   const handlers = new Map<string, Handler>();
@@ -101,10 +101,14 @@ test("OMP adapter uses the display-only assistant transformer seam", () => {
   handlers.get("session_start")?.({}, { cwd: root } as ExtensionContext);
 
   assert.ok(transform);
-  assert.equal(transform("`output/nested/result.txt`", { isStreaming: true }), "`output/nested/result.txt`");
+  const localMarkdownLink = "[result](output/nested/result.txt)";
   assert.match(
-    transform("`output/nested/result.txt`", { isStreaming: false }),
-    /^\[`output\/nested\/result\.txt`\]\(file:\/\//,
+    transform(localMarkdownLink, { isStreaming: true }),
+    /^\[result\]\(file:\/\//,
+  );
+  assert.match(
+    transform(localMarkdownLink, { isStreaming: false }),
+    /^\[result\]\(file:\/\//,
   );
 });
 

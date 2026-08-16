@@ -33,8 +33,5 @@ export function registerOmpPathLinks(api: unknown): void {
     cwd = context.cwd;
   });
 
-  omp.registerAssistantTextTransformer((markdown, context) => {
-    if (context.isStreaming) return markdown;
-    return renderPathLinks({ markdown, cwd });
-  });
+  omp.registerAssistantTextTransformer((markdown) => renderPathLinks({ markdown, cwd }));
 }

@@ -4,7 +4,7 @@ Lightweight, additive conveniences for [Pi](https://pi.dev), with local path lin
 
 - Shows remaining OpenAI Codex subscription usage as a small extension status.
 - Removes already-processed images from future model requests while preserving session history.
-- Turns existing local file paths in finalized assistant messages into links to their containing folders.
+- Turns existing local file paths in assistant display text into links to their containing folders.
 - Generates one image through Codex's built-in `image_gen` tool.
 
 ## Design promises
@@ -52,7 +52,7 @@ This keeps image-heavy sessions responsive. A historical image without a reusabl
 
 ## Local file links
 
-Existing local files and directories are linked to their containing folder or to themselves, respectively. Relative Markdown links are normalized to absolute `file://` links. A `text` fence containing only existing path lines is rendered as a clickable path list; source-code fences and mixed prose/path fences remain unchanged. Missing paths, URLs, and Markdown image targets are unchanged. The transformation is display-only and does not alter session history or model context.
+Existing local files and directories are linked to their containing folder or to themselves, respectively. OMP transforms complete paths as soon as they appear in streaming output; Pi transforms finalized assistant Markdown. Relative Markdown links are normalized to absolute `file://` links. A `text` fence containing only existing path lines is rendered as a clickable path list; source-code fences and mixed prose/path fences remain unchanged. Missing paths, URLs, and Markdown image targets are unchanged. The transformation is display-only and does not alter session history or model context.
 
 Path recognition and resolution stay inside this package. Pi and OMP provide display-only Markdown Adapter seams; neither session history nor model context is mutated. The terminal owns only the final URI dispatch:
 
