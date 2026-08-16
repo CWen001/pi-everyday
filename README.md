@@ -153,6 +153,8 @@ pi -e .
 
 Do not commit credentials, generated images, diagnostics, local paths, or session logs.
 
+Releases are published by GitHub Actions from matching `v*` tags through npm trusted publishing. Local npm tokens are not used for releases.
+
 ## License
 
 MIT
