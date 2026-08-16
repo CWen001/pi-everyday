@@ -118,7 +118,7 @@ test("Pi overlay composes once, invalidates cached modes, and releases owners in
 
   const file = join(root, "output", "nested", "result.txt");
   const cached = new Markdown(file, 0, 0, plainMarkdownTheme);
-  assert.doesNotMatch(cached.render(300).join("\n"), /\x1b\]8;;file:\/\//);
+  assert.doesNotMatch(cached.render(300).join("\n"), /file:\/\//);
 
   const first = makePi();
   registerPathLinks(first.pi);
@@ -126,27 +126,27 @@ test("Pi overlay composes once, invalidates cached modes, and releases owners in
   const second = makePi();
   registerPathLinks(second.pi);
   assert.equal(Markdown.prototype.render, installedRender);
-  assert.match(cached.render(300).join("\n"), /\x1b\]8;;file:\/\//);
+  assert.match(cached.render(300).join("\n"), /file:\/\//);
 
   const composed = new Markdown("ignored", 0, 0, plainMarkdownTheme, undefined, {
     transform: () => file,
   }).render(300).join("\n");
-  assert.match(composed, /\x1b\]8;;file:\/\//);
+  assert.match(composed, /file:\/\//);
   assert.match(composed, /\/output\/nested/);
 
   const relative = new Markdown("output/nested/result.txt", 0, 0, plainMarkdownTheme).render(300).join("\n");
-  assert.doesNotMatch(relative, /\x1b\]8;;file:\/\//);
+  assert.doesNotMatch(relative, /file:\/\//);
 
   const incompatible = new Markdown(file, 0, 0, plainMarkdownTheme);
   const internals = incompatible as unknown as { options: object };
   Object.freeze(internals.options);
-  assert.doesNotMatch(incompatible.render(300).join("\n"), /\x1b\]8;;file:\/\//);
+  assert.doesNotMatch(incompatible.render(300).join("\n"), /file:\/\//);
 
   first.handlers.get("session_shutdown")?.({}, {} as ExtensionContext);
-  assert.match(cached.render(300).join("\n"), /\x1b\]8;;file:\/\//);
+  assert.match(cached.render(300).join("\n"), /file:\/\//);
 
   second.handlers.get("session_shutdown")?.({}, {} as ExtensionContext);
-  assert.doesNotMatch(cached.render(300).join("\n"), /\x1b\]8;;file:\/\//);
+  assert.doesNotMatch(cached.render(300).join("\n"), /file:\/\//);
 });
 
 test("OMP adapter transforms streaming and finalized assistant display", () => {
