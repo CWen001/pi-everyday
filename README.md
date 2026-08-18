@@ -6,7 +6,7 @@ Small, additive conveniences for [Pi](https://pi.dev):
 - Keep old images out of future model requests without changing session history.
 - Turn existing local paths in assistant output into Path Links.
 - Generate one audited image through Codex's built-in `image_gen` tool.
-- Carry an opt-in recipe for temporary Pi delegation through Herdr.
+- Run focused code reviews in a fresh Pi process with `/review`.
 
 This package is primarily maintained for personal use. Public use is welcome, but maintenance and compatibility are best effort.
 
@@ -68,9 +68,15 @@ Provide a prompt and, optionally, one reference image and an output such as `./o
 
 There are no automatic retries, fallback providers, or additional image requests.
 
-### Ephemeral delegation recipe
+### Code review prompt
 
-[`recipes/ephemeral-delegation/`](recipes/ephemeral-delegation/) contains an inactive, manually installed global rule for bounded research and review workers in Herdr. Read its README before copying it into Pi's global configuration. It is packaged for portability but does not load automatically.
+Run the bundled prompt in Pi:
+
+```text
+/review review the current branch
+```
+
+The prompt asks Pi to spawn a fresh `pi --print` process that reviews the requested code for bugs, security issues, and error-handling gaps. Add a provider or model to the request when you want the reviewer to use one explicitly. The main session reports the reviewer's findings without reading the code itself.
 
 ## Privacy and security
 
@@ -144,7 +150,7 @@ Remove it:
 pi remove npm:pi-everyday
 ```
 
-Removing the package stops its extensions but does not delete generated images or diagnostics.
+Removing the package stops its extensions and removes its bundled skill and prompt. It does not delete generated images or diagnostics.
 
 ## Development
 

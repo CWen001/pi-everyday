@@ -17,13 +17,14 @@
     "codex",
     "usage",
     "file-links",
-    "image-generation"
+    "image-generation",
+    "code-review"
   ],
   "files": [
     "extensions",
     "src",
     "skills/codex-image-gen",
-    "recipes/ephemeral-delegation",
+    "prompts",
     "README.md",
     "LICENSE"
   ],
@@ -33,6 +34,9 @@
     ],
     "skills": [
       "./skills/codex-image-gen"
+    ],
+    "prompts": [
+      "./prompts"
     ]
   },
   "omp": {
