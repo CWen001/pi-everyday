@@ -39,8 +39,9 @@ function validCustomInput(value) {
       // Current Codex emits the same call as a JavaScript object below.
     }
   }
-  const javascript = /^\/\/ @exec: [^\n]+\nconst result = await tools\.image_gen__imagegen\(\{prompt: `([\s\S]*)`, referenced_image_paths: (\[[^\n]*\])\}\);\s*generatedImage\(result\);\s*$/.exec(value);
+  const javascript = /^\/\/ @exec: [^\n]+\nconst result = await tools\.image_gen__imagegen\(\{prompt: `([\s\S]*)`, referenced_image_paths: (null|\[[^\n]*\])\}\);\s*generatedImage\(result\);\s*$/.exec(value);
   if (!javascript || javascript[1].includes("`") || javascript[1].includes("${")) return false;
+  if (javascript[2] === "null") return true;
   try {
     const paths = JSON.parse(javascript[2]);
     return Array.isArray(paths) && paths.every((path) => typeof path === "string");
