@@ -30,11 +30,20 @@ const completedItemTypes = new Set([
 
 function validCustomInput(value) {
   if (typeof value !== "string") return false;
-  const match = /^\/\/ @exec: [^\n]+\nconst result = await tools\.image_gen__imagegen\((\{[\s\S]*\})\);\s*generatedImage\(result\);\s*$/.exec(value);
-  if (!match) return false;
+  const json = /^\/\/ @exec: [^\n]+\nconst result = await tools\.image_gen__imagegen\((\{[\s\S]*\})\);\s*generatedImage\(result\);\s*$/.exec(value);
+  if (json) {
+    try {
+      const arguments_ = JSON.parse(json[1]);
+      return arguments_ !== null && !Array.isArray(arguments_) && typeof arguments_ === "object";
+    } catch {
+      // Current Codex emits the same call as a JavaScript object below.
+    }
+  }
+  const javascript = /^\/\/ @exec: [^\n]+\nconst result = await tools\.image_gen__imagegen\(\{prompt: `([\s\S]*)`, referenced_image_paths: (\[[^\n]*\])\}\);\s*generatedImage\(result\);\s*$/.exec(value);
+  if (!javascript || javascript[1].includes("`") || javascript[1].includes("${")) return false;
   try {
-    const arguments_ = JSON.parse(match[1]);
-    return arguments_ !== null && !Array.isArray(arguments_) && typeof arguments_ === "object";
+    const paths = JSON.parse(javascript[2]);
+    return Array.isArray(paths) && paths.every((path) => typeof path === "string");
   } catch {
     return false;
   }

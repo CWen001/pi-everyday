@@ -65,14 +65,16 @@ const events = [
   { type: "world_state", payload: { full: true, state: {} } },
   { type: "event_msg", payload: { type: "image_generation_end", call_id: "ig_test", status: "completed", saved_path: artifact } }
 ];
-const customScenarios = ["custom-call", "computed-tool-call", "item-completed", "missing-custom-call-id"];
+const customScenarios = ["custom-call", "computed-tool-call", "current-custom-call", "item-completed", "missing-custom-call-id"];
 if (!customScenarios.includes(process.env.FAKE_CODEX_SCENARIO)) {
   events.splice(1, 0, { type: "response_item", payload: { type: "image_generation_call", id: "ig_test", status: "generating" } });
 }
 if (customScenarios.includes(process.env.FAKE_CODEX_SCENARIO)) {
   const input = process.env.FAKE_CODEX_SCENARIO === "computed-tool-call"
     ? '// @exec: {"yield_time_ms": 120000}\\nconst result = await tools.image_gen__imagegen({prompt:tools["other_tool"]()});\\ngeneratedImage(result);'
-    : '// @exec: {"yield_time_ms": 120000}\\nconst result = await tools.image_gen__imagegen({"prompt":"kite"});\\ngeneratedImage(result);';
+    : process.env.FAKE_CODEX_SCENARIO === "current-custom-call"
+      ? '// @exec: {"yield_time_ms": 120000, "max_output_tokens": 1000}\\nconst result = await tools.image_gen__imagegen({prompt: ' + String.fromCharCode(96) + 'draw one kite\\n\\nNo text.' + String.fromCharCode(96) + ', referenced_image_paths: []});\\ngeneratedImage(result);'
+      : '// @exec: {"yield_time_ms": 120000}\\nconst result = await tools.image_gen__imagegen({"prompt":"kite"});\\ngeneratedImage(result);';
   events.splice(2, 0,
     { type: "response_item", payload: { type: "custom_tool_call", name: "exec", status: "completed", call_id: "outer_test", input } },
     { type: "response_item", payload: { type: "custom_tool_call_output", call_id: "outer_test", output: "generated" } },
@@ -82,7 +84,7 @@ if (customScenarios.includes(process.env.FAKE_CODEX_SCENARIO)) {
     delete events[3].payload.call_id;
   }
 }
-if (process.env.FAKE_CODEX_SCENARIO === "item-completed") {
+if (["current-custom-call", "item-completed"].includes(process.env.FAKE_CODEX_SCENARIO)) {
   events[events.length - 1] = {
     type: "event_msg",
     payload: {
@@ -231,6 +233,27 @@ test("a prompt produces one audited workspace image", async () => {
   assert.match(isolatedCwd, /codex-image-gen-/);
   assert.notEqual(isolatedCwd, workspace);
   assert.equal(invocation.args.includes("--image"), false);
+});
+
+test("current Codex JavaScript image call produces one audited workspace image", async () => {
+  const root = await mkdtemp(join(tmpdir(), "codex-image-gen-current-call-"));
+  const workspace = join(root, "workspace");
+  const codexHome = join(root, "codex-home");
+  await mkdir(workspace);
+  const bin = await makeFakeCodex(root);
+
+  const result = await run(workspace, [], "a red paper kite", {
+    ...process.env,
+    PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+    CODEX_HOME: codexHome,
+    FAKE_CODEX_CAPTURE: join(root, "capture.json"),
+    FAKE_CODEX_SCENARIO: "current-custom-call",
+  });
+
+  assert.equal(result.code, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.mode, "built-in image_gen");
+  assert.equal(await readFile(output.path, "utf8"), "generated-image");
 });
 
 test("Codex item_completed provenance produces one audited workspace image", async () => {
