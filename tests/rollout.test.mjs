@@ -78,6 +78,29 @@ function itemCompletedEvents() {
   ];
 }
 
+function asyncImageEvents() {
+  const events = itemCompletedEvents();
+  events[1].payload.input =
+    "const r = await tools.image_gen__imagegen({num_last_images_to_include:1,prompt:`kite`});\ngeneratedImage(r);";
+  events[2].payload.output = "Script running with cell ID 1\n";
+  events.splice(-1, 0,
+    {
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "wait",
+        call_id: "wait-1",
+        arguments: '{"cell_id":"1","yield_time_ms":120000,"max_tokens":2000}',
+      },
+    },
+    {
+      type: "response_item",
+      payload: { type: "function_call_output", call_id: "wait-1", output: "generated" },
+    },
+  );
+  return events;
+}
+
 test("auditRollout normalizes the legacy image call format", () => {
   assert.deepEqual(auditRollout(legacyEvents(), threadId), {
     callId: "image-1",
@@ -94,6 +117,13 @@ test("auditRollout normalizes the custom-tool image call format", () => {
 
 test("auditRollout normalizes Codex item_completed image generation", () => {
   assert.deepEqual(auditRollout(itemCompletedEvents(), threadId), {
+    callId: "exec-1",
+    savedPath: "/generated/image.png",
+  });
+});
+
+test("auditRollout normalizes current asynchronous image generation", () => {
+  assert.deepEqual(auditRollout(asyncImageEvents(), threadId), {
     callId: "exec-1",
     savedPath: "/generated/image.png",
   });

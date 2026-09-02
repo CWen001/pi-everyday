@@ -11,6 +11,8 @@ const responseItemTypes = new Set([
   "image_generation_call",
   "custom_tool_call",
   "custom_tool_call_output",
+  "function_call",
+  "function_call_output",
 ]);
 const eventMessageTypes = new Set([
   "agent_message",
@@ -39,15 +41,18 @@ function validCustomInput(value) {
       // Current Codex emits the same call as a JavaScript object below.
     }
   }
-  const javascript = /^\/\/ @exec: [^\n]+\nconst result = await tools\.image_gen__imagegen\(\{prompt: `([\s\S]*)`, referenced_image_paths: (null|\[[^\n]*\])\}\);\s*generatedImage\(result\);\s*$/.exec(value);
-  if (!javascript || javascript[1].includes("`") || javascript[1].includes("${")) return false;
-  if (javascript[2] === "null") return true;
-  try {
-    const paths = JSON.parse(javascript[2]);
-    return Array.isArray(paths) && paths.every((path) => typeof path === "string");
-  } catch {
-    return false;
+  const javascript = /^(?:\/\/ @exec: [^\n]+\n)?const ([A-Za-z_$][\w$]*) = await tools\.image_gen__imagegen\(\{prompt:\s*`([\s\S]*)`(?:,\s*referenced_image_paths:\s*(null|\[[^\n]*\]))?\}\);\s*generatedImage\(\1\);\s*$/.exec(value);
+  if (javascript && !javascript[2].includes("`") && !javascript[2].includes("${")) {
+    if (!javascript[3] || javascript[3] === "null") return true;
+    try {
+      const paths = JSON.parse(javascript[3]);
+      return Array.isArray(paths) && paths.every((path) => typeof path === "string");
+    } catch {
+      return false;
+    }
   }
+  const previousImage = /^(?:\/\/ @exec: [^\n]+\n)?const ([A-Za-z_$][\w$]*) = await tools\.image_gen__imagegen\(\{num_last_images_to_include:\s*([1-5]),\s*prompt:\s*`([\s\S]*)`\}\);\s*generatedImage\(\1\);\s*$/.exec(value);
+  return Boolean(previousImage && !previousImage[3].includes("`") && !previousImage[3].includes("${"));
 }
 
 export function auditRollout(events, threadId) {
@@ -62,7 +67,8 @@ export function auditRollout(events, threadId) {
       typeof payloadType === "string" &&
       payloadType.endsWith("_call") &&
       payloadType !== "image_generation_call" &&
-      payloadType !== "custom_tool_call"
+      payloadType !== "custom_tool_call" &&
+      !(payloadType === "function_call" && event.payload?.name === "wait")
     ) {
       throw new Error(`codex used another tool: ${payloadType}`);
     }
@@ -111,6 +117,12 @@ export function auditRollout(events, threadId) {
       event.type === "response_item" &&
       event.payload?.type === "custom_tool_call_output",
   );
+  const waits = events.filter(
+    (event) => event.type === "response_item" && event.payload?.type === "function_call",
+  );
+  const waitOutputs = events.filter(
+    (event) => event.type === "response_item" && event.payload?.type === "function_call_output",
+  );
 
   if (legacyCalls.length) {
     if (legacyCalls.length !== 1 || customCalls.length || customOutputs.length) {
@@ -136,6 +148,37 @@ export function auditRollout(events, threadId) {
     }
   } else {
     throw new Error("rollout did not record a supported image_gen call");
+  }
+
+  if (waits.length || waitOutputs.length) {
+    if (!customCalls.length || waits.length !== 1 || waitOutputs.length !== 1) {
+      throw new Error("expected one image_gen wait call and output");
+    }
+    const wait = waits[0].payload;
+    const output = waitOutputs[0].payload;
+    let arguments_;
+    try {
+      arguments_ = JSON.parse(wait.arguments);
+    } catch {
+      throw new Error("image_gen used an unsupported wait call");
+    }
+    if (
+      wait.name !== "wait" ||
+      output.call_id !== wait.call_id ||
+      Object.keys(arguments_).sort().join(",") !== "cell_id,max_tokens,yield_time_ms" ||
+      typeof arguments_.cell_id !== "string" ||
+      !arguments_.cell_id ||
+      !Number.isInteger(arguments_["yield_time_ms"]) ||
+      arguments_["yield_time_ms"] < 1 ||
+      arguments_["yield_time_ms"] > 120_000 ||
+      !Number.isInteger(arguments_.max_tokens) ||
+      arguments_.max_tokens < 1 ||
+      arguments_.max_tokens > 10_000 ||
+      typeof customOutputs[0].payload.output !== "string" ||
+      !customOutputs[0].payload.output.includes(`Script running with cell ID ${arguments_.cell_id}`)
+    ) {
+      throw new Error("image_gen used an unsupported wait call");
+    }
   }
 
   const endings = events.filter(
