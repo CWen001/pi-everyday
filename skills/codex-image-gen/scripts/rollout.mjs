@@ -15,10 +15,17 @@ const responseItemTypes = new Set([
 const eventMessageTypes = new Set([
   "agent_message",
   "image_generation_end",
+  "item_completed",
   "task_complete",
   "task_started",
   "token_count",
   "user_message",
+]);
+const completedItemTypes = new Set([
+  "AgentMessage",
+  "Extension",
+  "Reasoning",
+  "UserMessage",
 ]);
 
 function validCustomInput(value) {
@@ -56,6 +63,18 @@ export function auditRollout(events, threadId) {
       throw new Error(
         `unsupported rollout schema: ${payloadType || "missing payload type"}`,
       );
+    }
+    if (event.type === "event_msg" && payloadType === "item_completed") {
+      const item = event.payload?.item;
+      if (event.payload?.thread_id !== threadId) {
+        throw new Error("completed item did not match the Codex thread id");
+      }
+      if (!item || !completedItemTypes.has(item.type)) {
+        throw new Error(`unsupported completed item: ${item?.type || "missing item type"}`);
+      }
+      if (item.type === "Extension" && item.kind !== "image_gen.generation") {
+        throw new Error(`unsupported completed extension: ${item.kind || "missing kind"}`);
+      }
     }
   }
 
@@ -114,10 +133,23 @@ export function auditRollout(events, threadId) {
       event.type === "event_msg" &&
       event.payload?.type === "image_generation_end",
   );
-  if (endings.length !== 1) {
-    throw new Error(`expected one image_gen end event, found ${endings.length}`);
+  const completedExtensions = events.filter(
+    (event) =>
+      event.type === "event_msg" &&
+      event.payload?.type === "item_completed" &&
+      event.payload?.item?.type === "Extension",
+  );
+  if (endings.length + completedExtensions.length !== 1) {
+    throw new Error(`expected one image_gen end event, found ${endings.length + completedExtensions.length}`);
   }
-  const ending = endings[0].payload;
+  const ending = endings.length
+    ? endings[0].payload
+    : {
+        call_id: completedExtensions[0].payload.item.id,
+        status: completedExtensions[0].payload.item.status,
+        saved_path: completedExtensions[0].payload.item.savedPath,
+        failure: completedExtensions[0].payload.item.failure,
+      };
   if (typeof ending.call_id !== "string" || !ending.call_id) {
     throw new Error("image_gen did not record a valid call id");
   }
@@ -131,7 +163,7 @@ export function auditRollout(events, threadId) {
       throw new Error(`unsupported image_gen call status: ${legacy.status || "missing"}`);
     }
   }
-  if (ending.status === "failed") throw new Error("image_gen generation failed");
+  if (ending.status === "failed" || ending.failure) throw new Error("image_gen generation failed");
   if (ending.status !== "completed") {
     throw new Error(`image_gen did not complete: ${ending.status || "missing"}`);
   }

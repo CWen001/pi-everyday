@@ -254,7 +254,7 @@ async function main(failureContext) {
     "-",
   ];
   if (options.image) args.push("--image", options.image);
-  const constrainedPrompt = `${prompt}\n\nCall the built-in image_gen tool exactly once and generate exactly one image. Do not call any other tool. Do not use the Image API, a fallback CLI, or another model.`;
+  const constrainedPrompt = `${prompt}\n\nYour first and only tool call must be the built-in image_gen tool, exactly once, generating exactly one image; return immediately after it completes. Never call apply_patch, even with an empty patch. Do not use the Image API, a fallback CLI, or another model.`;
   let execution;
   try {
     execution = await runCodex(args, { input: constrainedPrompt, timeout: 15 * 60_000 });

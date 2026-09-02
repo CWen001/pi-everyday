@@ -65,7 +65,7 @@ const events = [
   { type: "world_state", payload: { full: true, state: {} } },
   { type: "event_msg", payload: { type: "image_generation_end", call_id: "ig_test", status: "completed", saved_path: artifact } }
 ];
-const customScenarios = ["custom-call", "computed-tool-call", "missing-custom-call-id"];
+const customScenarios = ["custom-call", "computed-tool-call", "item-completed", "missing-custom-call-id"];
 if (!customScenarios.includes(process.env.FAKE_CODEX_SCENARIO)) {
   events.splice(1, 0, { type: "response_item", payload: { type: "image_generation_call", id: "ig_test", status: "generating" } });
 }
@@ -81,6 +81,24 @@ if (customScenarios.includes(process.env.FAKE_CODEX_SCENARIO)) {
     delete events[2].payload.call_id;
     delete events[3].payload.call_id;
   }
+}
+if (process.env.FAKE_CODEX_SCENARIO === "item-completed") {
+  events[events.length - 1] = {
+    type: "event_msg",
+    payload: {
+      type: "item_completed",
+      thread_id: threadId,
+      turn_id: "turn-1",
+      item: {
+        type: "Extension",
+        kind: "image_gen.generation",
+        id: "exec-1",
+        status: "completed",
+        savedPath: artifact,
+        failure: null,
+      },
+    },
+  };
 }
 if (process.env.FAKE_CODEX_SCENARIO === "zero-calls") events.pop();
 if (process.env.FAKE_CODEX_SCENARIO === "multiple-calls") {
@@ -174,6 +192,8 @@ test("a prompt produces one audited workspace image", async () => {
   const invocation = JSON.parse(await readFile(capture, "utf8"));
   assert.ok(invocation.prompt.startsWith("  a red paper kite  \n"));
   assert.match(invocation.prompt, /exactly once/i);
+  assert.match(invocation.prompt, /first and only tool call/i);
+  assert.match(invocation.prompt, /apply_patch/i);
   assert.ok(invocation.args.includes("--ignore-user-config"));
   assert.ok(invocation.args.includes("--skip-git-repo-check"));
   assert.ok(invocation.args.includes("--json"));
@@ -211,6 +231,27 @@ test("a prompt produces one audited workspace image", async () => {
   assert.match(isolatedCwd, /codex-image-gen-/);
   assert.notEqual(isolatedCwd, workspace);
   assert.equal(invocation.args.includes("--image"), false);
+});
+
+test("Codex item_completed provenance produces one audited workspace image", async () => {
+  const root = await mkdtemp(join(tmpdir(), "codex-image-gen-item-completed-"));
+  const workspace = join(root, "workspace");
+  const codexHome = join(root, "codex-home");
+  await mkdir(workspace);
+  const bin = await makeFakeCodex(root);
+
+  const result = await run(workspace, [], "a red paper kite", {
+    ...process.env,
+    PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+    CODEX_HOME: codexHome,
+    FAKE_CODEX_CAPTURE: join(root, "capture.json"),
+    FAKE_CODEX_SCENARIO: "item-completed",
+  });
+
+  assert.equal(result.code, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.mode, "built-in image_gen");
+  assert.equal(await readFile(output.path, "utf8"), "generated-image");
 });
 
 test("one reference image reaches Codex and an explicit destination", async () => {

@@ -55,6 +55,29 @@ function customEvents() {
   ];
 }
 
+function itemCompletedEvents() {
+  return [
+    metadata,
+    ...customEvents().slice(1, -1),
+    {
+      type: "event_msg",
+      payload: {
+        type: "item_completed",
+        thread_id: threadId,
+        turn_id: "turn-1",
+        item: {
+          type: "Extension",
+          kind: "image_gen.generation",
+          id: "exec-1",
+          status: "completed",
+          savedPath: "/generated/image.png",
+          failure: null,
+        },
+      },
+    },
+  ];
+}
+
 test("auditRollout normalizes the legacy image call format", () => {
   assert.deepEqual(auditRollout(legacyEvents(), threadId), {
     callId: "image-1",
@@ -65,6 +88,13 @@ test("auditRollout normalizes the legacy image call format", () => {
 test("auditRollout normalizes the custom-tool image call format", () => {
   assert.deepEqual(auditRollout(customEvents(), threadId), {
     callId: "image-1",
+    savedPath: "/generated/image.png",
+  });
+});
+
+test("auditRollout normalizes Codex item_completed image generation", () => {
+  assert.deepEqual(auditRollout(itemCompletedEvents(), threadId), {
+    callId: "exec-1",
     savedPath: "/generated/image.png",
   });
 });
@@ -129,6 +159,53 @@ test("auditRollout rejects ambiguous, mismatched, and malformed provenance", () 
         { type: "response_item", payload: { type: "function_call", name: "exec" } },
         ...legacyEvents().slice(1),
       ],
+    ],
+    [
+      "item_completed with another custom tool",
+      [
+        metadata,
+        {
+          type: "response_item",
+          payload: {
+            type: "custom_tool_call",
+            name: "exec",
+            status: "completed",
+            call_id: "patch-1",
+            input: "const result = await tools.apply_patch(\"*** Begin Patch\\n*** End Patch\");",
+          },
+        },
+        {
+          type: "response_item",
+          payload: {
+            type: "custom_tool_call_output",
+            call_id: "patch-1",
+            output: "done",
+          },
+        },
+        ...itemCompletedEvents().slice(1),
+      ],
+    ],
+    [
+      "wrong completed-item thread",
+      itemCompletedEvents().map((event) =>
+        event.payload?.type === "item_completed"
+          ? { ...event, payload: { ...event.payload, thread_id: "other-thread" } }
+          : event,
+      ),
+    ],
+    [
+      "unknown completed extension",
+      itemCompletedEvents().map((event) =>
+        event.payload?.type === "item_completed"
+          ? {
+              ...event,
+              payload: {
+                ...event.payload,
+                item: { ...event.payload.item, kind: "other.extension" },
+              },
+            }
+          : event,
+      ),
     ],
     [
       "unknown schema",
