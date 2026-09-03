@@ -41,7 +41,7 @@ function validCustomInput(value) {
       // Current Codex emits the same call as a JavaScript object below.
     }
   }
-  const javascript = /^(?:\/\/ @exec: [^\n]+\n)?const ([A-Za-z_$][\w$]*) = await tools\.image_gen__imagegen\(\{prompt:\s*`([\s\S]*)`(?:,\s*referenced_image_paths:\s*(null|\[[^\n]*\]))?\}\);\s*generatedImage\(\1\);\s*$/.exec(value);
+  const javascript = /^(?:\/\/ @exec: [^\n]+\n)?const ([A-Za-z_$][\w$]*) = await tools\.image_gen__imagegen\(\{\s*prompt:\s*`([\s\S]*)`(?:,\s*referenced_image_paths:\s*(null|\[[^\n]*\]))?\s*,?\s*\}\);\s*generatedImage\(\1\);\s*$/.exec(value);
   if (javascript && !javascript[2].includes("`") && !javascript[2].includes("${")) {
     if (!javascript[3] || javascript[3] === "null") return true;
     try {
@@ -51,7 +51,7 @@ function validCustomInput(value) {
       return false;
     }
   }
-  const previousImage = /^(?:\/\/ @exec: [^\n]+\n)?const ([A-Za-z_$][\w$]*) = await tools\.image_gen__imagegen\(\{num_last_images_to_include:\s*([1-5]),\s*prompt:\s*`([\s\S]*)`\}\);\s*generatedImage\(\1\);\s*$/.exec(value);
+  const previousImage = /^(?:\/\/ @exec: [^\n]+\n)?const ([A-Za-z_$][\w$]*) = await tools\.image_gen__imagegen\(\{\s*num_last_images_to_include:\s*([1-5]),\s*prompt:\s*`([\s\S]*)`\s*,?\s*\}\);\s*generatedImage\(\1\);\s*$/.exec(value);
   return Boolean(previousImage && !previousImage[3].includes("`") && !previousImage[3].includes("${"));
 }
 

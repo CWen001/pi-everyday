@@ -65,15 +65,15 @@ const events = [
   { type: "world_state", payload: { full: true, state: {} } },
   { type: "event_msg", payload: { type: "image_generation_end", call_id: "ig_test", status: "completed", saved_path: artifact } }
 ];
-const customScenarios = ["custom-call", "computed-tool-call", "current-custom-call", "current-null-paths", "current-last-images", "item-completed", "missing-custom-call-id"];
+const customScenarios = ["custom-call", "computed-tool-call", "current-custom-call", "current-null-paths", "current-trailing-comma", "current-last-images", "item-completed", "missing-custom-call-id"];
 if (!customScenarios.includes(process.env.FAKE_CODEX_SCENARIO)) {
   events.splice(1, 0, { type: "response_item", payload: { type: "image_generation_call", id: "ig_test", status: "generating" } });
 }
 if (customScenarios.includes(process.env.FAKE_CODEX_SCENARIO)) {
   const input = process.env.FAKE_CODEX_SCENARIO === "computed-tool-call"
     ? '// @exec: {"yield_time_ms": 120000}\\nconst result = await tools.image_gen__imagegen({prompt:tools["other_tool"]()});\\ngeneratedImage(result);'
-    : ["current-custom-call", "current-null-paths", "current-last-images"].includes(process.env.FAKE_CODEX_SCENARIO)
-      ? '// @exec: {"yield_time_ms": 120000, "max_output_tokens": 1000}\\nconst result = await tools.image_gen__imagegen({prompt: ' + String.fromCharCode(96) + 'draw one kite\\n\\nNo text.' + String.fromCharCode(96) + ', ' + (process.env.FAKE_CODEX_SCENARIO === "current-last-images" ? 'num_last_images_to_include: 0' : 'referenced_image_paths: ' + (process.env.FAKE_CODEX_SCENARIO === "current-null-paths" ? 'null' : '[]')) + '});\\ngeneratedImage(result);'
+    : ["current-custom-call", "current-null-paths", "current-trailing-comma", "current-last-images"].includes(process.env.FAKE_CODEX_SCENARIO)
+      ? '// @exec: {"yield_time_ms": 120000, "max_output_tokens": 1000}\\nconst result = await tools.image_gen__imagegen({prompt: ' + String.fromCharCode(96) + 'draw one kite\\n\\nNo text.' + String.fromCharCode(96) + (process.env.FAKE_CODEX_SCENARIO === "current-trailing-comma" ? ',' : ', ' + (process.env.FAKE_CODEX_SCENARIO === "current-last-images" ? 'num_last_images_to_include: 0' : 'referenced_image_paths: ' + (process.env.FAKE_CODEX_SCENARIO === "current-null-paths" ? 'null' : '[]'))) + '});\\ngeneratedImage(result);'
       : '// @exec: {"yield_time_ms": 120000}\\nconst result = await tools.image_gen__imagegen({"prompt":"kite"});\\ngeneratedImage(result);';
   events.splice(2, 0,
     { type: "response_item", payload: { type: "custom_tool_call", name: "exec", status: "completed", call_id: "outer_test", input } },
@@ -84,7 +84,7 @@ if (customScenarios.includes(process.env.FAKE_CODEX_SCENARIO)) {
     delete events[3].payload.call_id;
   }
 }
-if (["current-custom-call", "current-null-paths", "current-last-images", "item-completed"].includes(process.env.FAKE_CODEX_SCENARIO)) {
+if (["current-custom-call", "current-null-paths", "current-trailing-comma", "current-last-images", "item-completed"].includes(process.env.FAKE_CODEX_SCENARIO)) {
   events[events.length - 1] = {
     type: "event_msg",
     payload: {
@@ -236,7 +236,7 @@ test("a prompt produces one audited workspace image", async () => {
 });
 
 test("current Codex JavaScript image calls produce audited workspace images", async () => {
-  for (const scenario of ["current-custom-call", "current-null-paths"]) {
+  for (const scenario of ["current-custom-call", "current-null-paths", "current-trailing-comma"]) {
     const root = await mkdtemp(join(tmpdir(), `codex-image-gen-${scenario}-`));
     const workspace = join(root, "workspace");
     const codexHome = join(root, "codex-home");
