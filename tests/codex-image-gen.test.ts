@@ -4,6 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 const runner = join(
   process.cwd(),
@@ -449,7 +450,7 @@ test("documented Codex and rollout failures fail closed", async () => {
 });
 
 test("a timed-out Codex run is stopped and logged without moving its artifact", async () => {
-  const root = await mkdtemp(join(tmpdir(), "codex-image-gen-timeout-"));
+  const root = await mkdtemp(join(tmpdir(), "codex-image-gen-timeout #"));
   const workspace = join(root, "workspace");
   const codexHome = join(root, "codex-home");
   const capture = join(root, "capture.json");
@@ -467,7 +468,7 @@ test("a timed-out Codex run is stopped and logged without moving its artifact", 
     CODEX_HOME: codexHome,
     FAKE_CODEX_CAPTURE: capture,
     FAKE_CODEX_SCENARIO: "hang",
-    NODE_OPTIONS: `--import=${preload}`,
+    NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`,
   });
 
   assert.equal(result.code, 1);
