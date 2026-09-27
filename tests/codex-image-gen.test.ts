@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -106,7 +106,7 @@ test("output collision after generation preserves both existing output and sourc
   assert.ok((await readFile(call.artifact)).length > 0);
   assert.equal((await f.calls()).length, 1);
   assert.equal(result.output.images[0].delivery, "original-only");
-  assert.equal(result.output.images[0].path, call.artifact);
+  assert.equal(await realpath(result.output.images[0].path), await realpath(call.artifact));
 });
 
 test("a temporary generation failure retries once and delivers the second result", async (t) => {
