@@ -1,6 +1,6 @@
 {
   "name": "pi-everyday",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Small, additive conveniences for everyday Pi use.",
   "type": "module",
   "license": "MIT",
@@ -64,5 +64,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@silvia-odwyer/photon-node": "^0.3.4"
   }
 }

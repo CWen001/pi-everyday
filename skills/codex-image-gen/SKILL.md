@@ -1,25 +1,36 @@
 ---
 name: codex-image-gen
-description: Generate one image through Codex's built-in image_gen tool.
+description: Generate or edit images through your Codex subscription, with recovery and bounded retries.
 disable-model-invocation: true
 ---
 
 # Codex Image Gen
 
-Generate exactly one image through a minimally exposed Codex session. Codex has no built-in-tool allowlist, so the bundled runner audits the recorded run and fails closed rather than claiming hard tool isolation.
+Use the local Codex subscription and built-in image_gen. The user chooses artistic quality; the runner checks technical validity and reports execution evidence, not hard tool isolation.
 
 ## Steps
 
-1. Collect a non-empty image prompt, at most one optional reference-image path, and one optional output-file path. Treat the reference as an edit target or visual reference according to the prompt.
+1. Collect the user's non-empty creative prompt, ordered optional reference-image paths, and optional output-file path. Preserve the prompt and reference intent; add no creative requirements.
 
-2. Run [`scripts/run.mjs`](scripts/run.mjs) with the prompt on stdin. Add `--image <path>` and `--output <path>` only when supplied.
+2. Pass the prompt on stdin to [`scripts/run.mjs`](scripts/run.mjs). Repeat `--image` for each supplied reference, within Codex's native limit. Omit unused options.
 
    ```bash
-   node <skill-directory>/scripts/run.mjs [--image <path>] [--output <path>]
+   node <skill-directory>/scripts/run.mjs [--image <path> ...] [--output <path>]
    ```
 
-   Invoking this skill authorizes one Codex run. Do not ask for another confirmation, retry, add references, or expand the creative request.
+   One Image Request authorizes up to three actual generation submissions, including the first, without further confirmation. The runner owns this budget: it waits, recovers known results, then retries eligible failures. Waiting and saving are not new generations. Do not relaunch the runner merely because a tool wrapper returned a running process; wait for that same process to finish. Do not add an outer retry loop or reroll for aesthetics. For an explicit batch, invoke once per requested image and preserve completed results.
 
-3. On success, report the returned image path, reference-image status, and execution mode. Completion criterion: the runner exits successfully and the reported image exists.
+3. Read the returned JSON even on a nonzero exit. Present **every** entry in `images`, in attempt order, displaying each image if supported or providing its accessible path. Explain which came from a retry or late recovery. `path` is only a compatibility alias, not a selected best image.
 
-4. On failure, report stderr and any log or rollout paths verbatim. Completion criterion: no failed or unaudited artifact is moved into the workspace.
+   Report `status`, relevant `runs[].check` warnings or violations, and reference usage. An incomplete check can accompany a valid image; a partial/failed request may still have useful images. A confirmed violation stops automatic retries but does not erase completed images. Never describe an opaque exec wrapper as fully audited.
+
+4. Completion means the runner has terminated and every reported image exists. Keep original Codex artifacts and existing output files intact. For failures, report the actual error and `diagnostic` path; `runs` also identify the originating Rollout and recoverable artifact sources. Never print raw Rollout contents or base64 image data. A delivery failure calls for recovering the existing image, not generating another.
+
+## Maintenance and compatibility
+
+Consult this section when Codex is incompatible or when maintaining the skill, not on every image request.
+
+- Check `codex --version` and the current upstream [tool guidance](https://github.com/openai/codex/blob/main/codex-rs/ext/image-generation/imagegen_description.md) and [tool contract](https://github.com/openai/codex/blob/main/codex-rs/ext/image-generation/src/tool.rs). Follow the latest applicable guidance while reporting the actual installed version's capabilities. Reference limits and image model routing belong to Codex, not this wrapper.
+- Use the CLI's existing installation/update mechanism when a newer compatible version is needed; verify and record the version after updating. For an npm-managed Codex, this is `npm install -g @openai/codex@latest`. Do not switch installation methods or force an upgrade on every run.
+- Preflight repair before any generation may be followed by the same request. Once an Image Run exists, inspect its outcome before further action and keep the request's shared generation budget; do not reset it by blindly rerunning this command.
+- Inherit native reference handling, necessary view_image calls, same-task waits and supported transparency options. The runner attaches references and supplies their paths; Codex follows its native guidance and can use the attachments if its filesystem bridge cannot read them. Do not substitute another provider or Images API.

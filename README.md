@@ -5,7 +5,7 @@ Small, additive conveniences for [Pi](https://pi.dev):
 - Show remaining OpenAI Codex subscription usage.
 - Keep old images out of future model requests without changing session history.
 - Turn existing local paths in assistant output into Path Links.
-- Generate one audited image through Codex's built-in `image_gen` tool.
+- Generate or edit images through your Codex subscription, with recovery and bounded retries.
 - Run focused code reviews in a fresh Pi process with `/review`.
 
 This package is primarily maintained for personal use. Public use is welcome, but maintenance and compatibility are best effort.
@@ -64,9 +64,13 @@ Run the skill in Pi:
 /skill:codex-image-gen
 ```
 
-Provide a prompt and, optionally, one reference image and an output such as `./output/image.png`. The skill runs the local `codex` command in a constrained Image Run, audits its Rollout, and transfers exactly one verified artifact.
+Provide a prompt, optional ordered reference images within Codex's native limit, and an output such as `./output/image.png`. The skill uses your local Codex subscription and built-in `image_gen`, preserving the creative prompt and original artifacts.
 
-There are no automatic retries, fallback providers, or additional image requests.
+An Image Request permits at most three generation submissions: recover first, retry temporary failures when needed. Waiting and saving do not submit another generation. Every valid result is shown, including late recoveries; the user chooses artistic quality. There are no fallback providers or Images API calls.
+
+Image outcomes and execution checks are separate. Unknown logs or opaque exec wrappers are reported as incomplete checks, not proof that an image failed or that tool isolation was enforced. A nonzero exit can still include delivered images; the JSON `images` array is authoritative, while `path` is only its first entry. Original files are kept and existing destinations are never overwritten. The runner decodes images using Photon (also used by Pi), rather than trusting a filename extension.
+
+Maintain compatibility with current Codex best practices and update the CLI through its existing installation method when necessary; no forced upgrade on every request. Diagnostics record the actual CLI version, attempts, artifact sources and check status without copying image base64.
 
 ### Code review prompt
 
@@ -84,7 +88,7 @@ The prompt asks Pi to spawn a fresh `pi --print` process that reviews the reques
 - Usage status uses the active OpenAI OAuth token only for an in-memory request to the internal usage endpoint. It does not persist the token or account identifier.
 - Path Rendering checks whether candidate paths exist and whether they are files or directories. It does not read file contents or send paths to a remote service.
 - Image context pruning changes only the transient outbound model request. Saved session history is not rewritten.
-- An Image Run sends its prompt and optional reference image to OpenAI through the locally installed Codex CLI and consumes the account's image allowance.
+- An Image Run sends its prompt and optional reference images to OpenAI through the locally installed Codex CLI and consumes the subscription's image allowance.
 - Codex owns its login and keeps its normal session records under `CODEX_HOME`. The package does not read or store Codex credentials.
 - Image failure diagnostics and Codex records can contain prompts and local paths. Review them before sharing.
 
@@ -137,6 +141,8 @@ Update this package:
 ```bash
 pi update npm:pi-everyday
 ```
+
+On another computer, install with `pi install npm:pi-everyday`, then use the update command above. Run `/reload` in an active Pi session after updating. If that computer uses the Git source instead, first preserve any local edits, remove that package declaration with `pi remove git:github.com/CWen001/pi-everyday`, then install the npm source; do not keep both sources enabled.
 
 Update all installed Pi packages:
 

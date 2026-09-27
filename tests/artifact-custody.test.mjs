@@ -3,17 +3,17 @@ import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-
 import { transferArtifact } from "../skills/codex-image-gen/scripts/artifact-custody.mjs";
+import { imageBytes } from "./fixtures/image.mjs";
 
-async function fixture() {
-  const temporaryRoot = await fs.mkdtemp(join(tmpdir(), "artifact-custody-"));
-  const root = await fs.realpath(temporaryRoot);
+async function fixture(t) {
+  const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), "artifact-custody-")));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
   const generatedRoot = join(root, "generated_images");
   const source = join(generatedRoot, "thread", "image.png");
   const destination = join(root, "workspace", "image.png");
   await fs.mkdir(join(generatedRoot, "thread"), { recursive: true });
-  await fs.writeFile(source, "generated-image");
+  await fs.writeFile(source, imageBytes);
   return { root, generatedRoot, source, destination };
 }
 
@@ -26,12 +26,10 @@ function destinationHandleFailure(destination, method, message) {
       let failed = false;
       return new Proxy(handle, {
         get(target, property) {
-          if (property === method && !failed) {
-            return async () => {
-              failed = true;
-              throw new Error(message);
-            };
-          }
+          if (property === method && !failed) return async () => {
+            failed = true;
+            throw new Error(message);
+          };
           const value = Reflect.get(target, property, target);
           return typeof value === "function" ? value.bind(target) : value;
         },
@@ -40,126 +38,62 @@ function destinationHandleFailure(destination, method, message) {
   };
 }
 
-async function assertSourceOnly(source, destination) {
-  assert.equal(await fs.readFile(source, "utf8"), "generated-image");
-  await assert.rejects(fs.lstat(destination), { code: "ENOENT" });
-}
-
-test("transferArtifact validates provenance and commits an exclusive destination", async () => {
-  const { root, generatedRoot, source, destination } = await fixture();
-  const order = [];
-  const operations = {
+test("Artifact Custody copies an exclusive destination and preserves the original", async (t) => {
+  const { root, generatedRoot, source, destination } = await fixture(t);
+  assert.equal(await transferArtifact({ source, destination, generatedRoot }, {
     ...fs,
-    async open(path, flags, ...args) {
-      const handle = await fs.open(path, flags, ...args);
-      if (path !== destination) return handle;
-      return new Proxy(handle, {
-        get(target, property) {
-          if (property === "sync" || property === "close") {
-            return async (...callArgs) => {
-              order.push(property);
-              return target[property](...callArgs);
-            };
-          }
-          const value = Reflect.get(target, property, target);
-          return typeof value === "function" ? value.bind(target) : value;
-        },
-      });
-    },
-    async unlink(path) {
-      if (path === source) order.push("remove-source");
-      return fs.unlink(path);
-    },
-  };
-
-  assert.equal(
-    await transferArtifact({ source, destination, generatedRoot }, operations),
-    destination,
-  );
-  assert.equal(await fs.readFile(destination, "utf8"), "generated-image");
-  await assert.rejects(fs.lstat(source), { code: "ENOENT" });
-  assert.deepEqual(order, ["sync", "close", "remove-source"]);
-
+    async unlink() { throw new Error("successful custody must not delete anything"); },
+  }), destination);
+  assert.deepEqual(await fs.readFile(source), imageBytes);
+  assert.deepEqual(await fs.readFile(destination), imageBytes);
+  await assert.rejects(transferArtifact({ source, destination, generatedRoot }), /EEXIST/);
+  assert.deepEqual(await fs.readFile(destination), imageBytes);
   const outside = join(root, "outside.png");
-  await fs.writeFile(outside, "keep");
-  await assert.rejects(
-    transferArtifact({ source: outside, destination: join(root, "bad.png"), generatedRoot }),
-    /outside .*generated_images/i,
-  );
-  assert.equal(await fs.readFile(outside, "utf8"), "keep");
-
-  const secondSource = join(generatedRoot, "thread", "second.png");
-  await fs.writeFile(secondSource, "second");
-  await assert.rejects(
-    transferArtifact({ source: secondSource, destination, generatedRoot }),
-    /EEXIST|already exists/i,
-  );
-  assert.equal(await fs.readFile(destination, "utf8"), "generated-image");
-  assert.equal(await fs.readFile(secondSource, "utf8"), "second");
+  await fs.writeFile(outside, imageBytes);
+  await assert.rejects(transferArtifact({ source: outside, destination, generatedRoot }), /outside/);
 });
 
-test("a destination write failure rolls back and preserves the source", async () => {
-  const { generatedRoot, source, destination } = await fixture();
-  await assert.rejects(
-    transferArtifact(
-      { source, destination, generatedRoot },
-      destinationHandleFailure(destination, "writeFile", "write failed"),
-    ),
-    /write failed/,
-  );
-  await assertSourceOnly(source, destination);
+for (const method of ["writeFile", "sync", "close"]) {
+  test(`a destination ${method} failure preserves source and removes partial output`, async (t) => {
+    const args = await fixture(t);
+    await assert.rejects(transferArtifact(args,
+      destinationHandleFailure(args.destination, method, `${method} failed`)), /failed/);
+    assert.deepEqual(await fs.readFile(args.source), imageBytes);
+    await assert.rejects(fs.lstat(args.destination), { code: "ENOENT" });
+  });
+}
+
+test("rollback failures retain the original error", async (t) => {
+  const args = await fixture(t);
+  await assert.rejects(transferArtifact(args, {
+    ...destinationHandleFailure(args.destination, "writeFile", "write failed"),
+    async unlink() { throw new Error("rollback removal failed"); },
+  }), /write failed.*rollback failed.*rollback removal failed/);
+  assert.deepEqual(await fs.readFile(args.source), imageBytes);
 });
 
-test("a destination close failure rolls back and preserves the source", async () => {
-  const { generatedRoot, source, destination } = await fixture();
-  await assert.rejects(
-    transferArtifact(
-      { source, destination, generatedRoot },
-      destinationHandleFailure(destination, "close", "close failed"),
-    ),
-    /close failed/,
-  );
-  await assertSourceOnly(source, destination);
+test("another session's image cannot be delivered as this Image Run", async (t) => {
+  const args = await fixture(t);
+  await assert.rejects(transferArtifact({ ...args, threadId: "different-thread" }), /different Image Run/);
+  await assert.rejects(fs.lstat(args.destination), { code: "ENOENT" });
 });
 
-test("a source-removal failure rolls back and preserves the source", async () => {
-  const { generatedRoot, source, destination } = await fixture();
-  await assert.rejects(
-    transferArtifact(
-      { source, destination, generatedRoot },
-      {
-        ...fs,
-        async unlink(path) {
-          if (path === source) throw new Error("source removal failed");
-          return fs.unlink(path);
-        },
-      },
-    ),
-    /source removal failed/,
-  );
-  await assertSourceOnly(source, destination);
+test("inline images decode and malformed base64 never reaches a destination", async (t) => {
+  const args = await fixture(t);
+  const data = imageBytes.toString("base64");
+  await transferArtifact({ destination: args.destination, data });
+  assert.deepEqual(await fs.readFile(args.destination), imageBytes);
+  for (const bad of ["invalid", "!!!!", data.slice(0, -5)]) {
+    await assert.rejects(transferArtifact({ destination: args.destination + ".bad", data: bad }), /image/);
+  }
 });
 
-test("a rollback failure is reported without hiding the original failure", async () => {
-  const { generatedRoot, source, destination } = await fixture();
-  await assert.rejects(
-    transferArtifact(
-      { source, destination, generatedRoot },
-      {
-        ...destinationHandleFailure(destination, "writeFile", "write failed"),
-        async unlink(path) {
-          if (path === destination) throw new Error("rollback removal failed");
-          return fs.unlink(path);
-        },
-      },
-    ),
-    (error) => {
-      assert.match(error.message, /write failed/);
-      assert.match(error.message, /rollback failed/);
-      assert.match(error.message, /rollback removal failed/);
-      return true;
-    },
-  );
-  assert.equal(await fs.readFile(source, "utf8"), "generated-image");
-  assert.equal(await fs.readFile(destination, "utf8"), "");
+test("non-images and truncated images are rejected before delivery", async (t) => {
+  const args = await fixture(t);
+  for (const contents of [Buffer.from("not an image"), imageBytes.subarray(0, 45)]) {
+    await fs.writeFile(args.source, contents);
+    await assert.rejects(transferArtifact(args), /decode|image/i);
+    await assert.rejects(fs.lstat(args.destination), { code: "ENOENT" });
+    assert.deepEqual(await fs.readFile(args.source), contents);
+  }
 });
