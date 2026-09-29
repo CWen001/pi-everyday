@@ -1,10 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import piEverydayOmp from "../extensions/omp.ts";
 import { formatUsageStatus } from "../src/usage-status/format.ts";
-import { parseUsagePayload } from "../src/usage-status/openai-source.ts";
+import { createOpenAIUsageSource, parseUsagePayload } from "../src/usage-status/openai-source.ts";
 import { registerUsageStatus } from "../src/usage-status/register.ts";
 import type { UsageSource } from "../src/usage-status/types.ts";
+
+test("OMP registers the same additive usage lifecycle", () => {
+  const events: string[] = [];
+  const omp = {
+    on(name: string) {
+      events.push(name);
+    },
+    registerAssistantTextTransformer() {},
+  } as unknown as ExtensionAPI;
+
+  piEverydayOmp(omp);
+
+  assert.ok(events.includes("session_start"));
+  assert.ok(events.includes("turn_end"));
+  assert.ok(events.includes("session_shutdown"));
+});
 
 test("parses and formats primary usage windows", () => {
   const snapshot = parseUsagePayload({
@@ -29,6 +46,47 @@ test("clamps malformed percentages", () => {
     rate_limit: { primary_window: { used_percent: 120, limit_window_seconds: 3600 } },
   });
   assert.equal(formatUsageStatus(snapshot), "1h 0% left");
+});
+
+test("loads usage through the shared provider-level auth API", async () => {
+  const payload = Buffer.from(JSON.stringify({
+    "https://api.openai.com/auth": { chatgpt_account_id: "account-1" },
+  })).toString("base64url");
+  const token = `header.${payload}.signature`;
+  let requestedProvider: string | undefined;
+  let requestUrl: string | undefined;
+  let requestHeaders: Headers | undefined;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    requestUrl = String(input);
+    requestHeaders = new Headers(init?.headers);
+    return new Response(JSON.stringify({
+      rate_limit: {
+        primary_window: { used_percent: 25, limit_window_seconds: 18000 },
+      },
+    }), { status: 200 });
+  };
+
+  try {
+    const ctx = {
+      modelRegistry: {
+        async getApiKeyForProvider(provider: string) {
+          requestedProvider = provider;
+          return token;
+        },
+      },
+    } as unknown as ExtensionContext;
+
+    const snapshot = await createOpenAIUsageSource(ctx).load(new AbortController().signal);
+
+    assert.equal(requestedProvider, "openai-codex");
+    assert.equal(requestUrl, "https://chatgpt.com/backend-api/wham/usage");
+    assert.equal(requestHeaders?.get("Authorization"), `Bearer ${token}`);
+    assert.equal(requestHeaders?.get("ChatGPT-Account-Id"), "account-1");
+    assert.equal(snapshot?.rateLimit?.primary?.remainingPercent, 75);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("registers an additive status with cooldown and no footer replacement", async () => {

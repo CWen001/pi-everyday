@@ -81,15 +81,13 @@ function decodeAccountId(accessToken: string): string | undefined {
 export function createOpenAIUsageSource(ctx: ExtensionContext): UsageSource {
   return {
     async load(signal): Promise<UsageSnapshot | undefined> {
-      const auth = await ctx.modelRegistry.getProviderAuth(PROVIDER_ID);
-      const accessToken = auth?.auth.apiKey;
+      const accessToken = await ctx.modelRegistry.getApiKeyForProvider(PROVIDER_ID);
       if (!accessToken) return undefined;
 
       const accountId = decodeAccountId(accessToken);
       if (!accountId) return undefined;
 
-      const provider = ctx.modelRegistry.getProvider(PROVIDER_ID);
-      const baseUrl = (provider?.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
+      const baseUrl = DEFAULT_BASE_URL;
       const response = await fetch(`${baseUrl}${USAGE_PATH}`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,

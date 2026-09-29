@@ -1,6 +1,6 @@
 {
   "name": "pi-everyday",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Small, additive conveniences for everyday Pi use.",
   "type": "module",
   "license": "MIT",
@@ -17,14 +17,12 @@
     "codex",
     "usage",
     "file-links",
-    "image-generation",
-    "code-review"
+    "image-generation"
   ],
   "files": [
     "extensions",
     "src",
     "skills/codex-image-gen",
-    "prompts",
     "README.md",
     "LICENSE"
   ],
@@ -34,9 +32,6 @@
     ],
     "skills": [
       "./skills/codex-image-gen"
-    ],
-    "prompts": [
-      "./prompts"
     ]
   },
   "omp": {

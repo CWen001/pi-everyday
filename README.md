@@ -6,7 +6,6 @@ Small, additive conveniences for [Pi](https://pi.dev):
 - Keep old images out of future model requests without changing session history.
 - Turn existing local paths in assistant output into Path Links.
 - Generate or edit images through your Codex subscription, with recovery and bounded retries.
-- Run focused code reviews in a fresh Pi process with `/review`.
 
 This package is primarily maintained for personal use. Public use is welcome, but maintenance and compatibility are best effort.
 
@@ -32,9 +31,28 @@ Pi packages execute with the same system access as Pi. Review the source before 
 
 ### OpenAI usage status
 
-When Pi has an `openai-codex` OAuth login, a compact status shows the remaining primary and secondary subscription windows. It refreshes after turns with a five-minute cooldown and does not replace Pi's footer.
+When Pi or OMP has an `openai-codex` OAuth login, a compact status shows the remaining primary and secondary subscription windows. It refreshes after turns with a five-minute cooldown and does not replace the host's footer.
 
 If the internal OpenAI usage endpoint is unavailable or changes, the status stays silent.
+
+#### Compact OMP status layout
+
+OMP can display the usage status inline with its built-in status fields. To avoid a separate usage row and the stretched line between left and right groups, merge these settings into your OMP configuration:
+
+```yaml
+statusLine:
+  preset: custom
+  leftSegments: [vim, model, mode, path, git, pr, cost, status, token_total, context_pct, session_name]
+  rightSegments: []
+  separator: pipe
+  transparent: true
+  contextLine: off
+  showHookStatus: false
+```
+
+The `status` segment includes extension statuses; `showHookStatus: false` suppresses their duplicate standalone row. All fields stay in one left-aligned group, while any remaining box border follows the last field. OMP may hide fields, including usage, when the terminal is narrow.
+
+This is an optional host-layout preference, not an automatic package setting. Pi Everyday never overwrites your OMP configuration.
 
 ### Image context pruning
 
@@ -72,16 +90,6 @@ Image outcomes and execution checks are separate. Unknown logs or opaque exec wr
 
 Maintain compatibility with current Codex best practices and update the CLI through its existing installation method when necessary; no forced upgrade on every request. Diagnostics record the actual CLI version, attempts, artifact sources and check status without copying image base64.
 
-### Code review prompt
-
-Run the bundled prompt in Pi:
-
-```text
-/review review the current branch
-```
-
-The prompt asks Pi to spawn a fresh `pi --print` process that reviews the requested code for bugs, security issues, and error-handling gaps. Add a provider or model to the request when you want the reviewer to use one explicitly. The main session reports the reviewer's findings without reading the code itself.
-
 ## Privacy and security
 
 - The package includes no telemetry.
@@ -113,9 +121,46 @@ Automated checks run on macOS, Windows, and Linux. Pointer behavior can still va
 
 Confirm that the terminal enables OSC 8 hyperlinks and routes `file://` URIs to the operating system. Try the terminal's normal hyperlink modifier while clicking.
 
+#### Windows: Pi inside Herdr inside WezTerm
+
+Herdr captures terminal mouse input and currently does not reliably open local `file://` links on Windows. Keep Pi Everyday's standard Path Links and let WezTerm handle Ctrl+click before Herdr receives it.
+
+Ask your agent to merge the following into `%USERPROFILE%\.wezterm.lua` without replacing unrelated settings or existing mouse bindings:
+
+```lua
+local wezterm = require 'wezterm'
+local act = wezterm.action
+
+wezterm.on('open-uri', function(_, _, uri)
+  if not uri:match('^file:') then return end
+
+  local path = wezterm.url.parse(uri).file_path:gsub('^/([A-Za-z]:/)', '%1'):gsub('/', '\\')
+  wezterm.open_with(path)
+  return false
+end)
+
+config.mouse_bindings = config.mouse_bindings or {}
+table.insert(config.mouse_bindings, {
+  event = { Down = { streak = 1, button = 'Left' } },
+  mods = 'CTRL',
+  action = act.Nop,
+  mouse_reporting = true,
+})
+table.insert(config.mouse_bindings, {
+  event = { Up = { streak = 1, button = 'Left' } },
+  mods = 'CTRL',
+  action = act.OpenLinkAtMouseCursor,
+  mouse_reporting = true,
+})
+```
+
+Here, `config` means the table your existing WezTerm configuration returns. Reload Pi after removing any older path-link transformer, then verify Ctrl+click with both an existing local directory and a local file.
+
+Do not install a Herdr link-handler plugin, rewrite paths through a sentinel HTTPS domain, or modify installed Pi, Herdr, or WezTerm files. The durable boundary is: Pi Everyday emits standard `file://` Path Links; the user-owned WezTerm configuration opens them.
+
 ### Usage status is absent
 
-Confirm that Pi has an active `openai-codex` OAuth login. Endpoint failures intentionally remain silent.
+Confirm that Pi or OMP has an active `openai-codex` OAuth login. Endpoint failures intentionally remain silent.
 
 ### Image generation fails before starting
 
@@ -156,7 +201,7 @@ Remove it:
 pi remove npm:pi-everyday
 ```
 
-Removing the package stops its extensions and removes its bundled skill and prompt. It does not delete generated images or diagnostics.
+Removing the package stops its extensions and removes its bundled skill. It does not delete generated images or diagnostics, or revert user-owned OMP layout settings.
 
 ## Development
 
@@ -171,6 +216,12 @@ pi -e .
 Do not commit credentials, generated images, diagnostics, local paths, or session logs.
 
 Releases are published by GitHub Actions from matching `v*` tags through npm trusted publishing. Local npm tokens are not used for releases.
+
+### 0.3.1
+
+- Enable Codex usage status in the OMP adapter using the shared provider-level authentication API.
+- Document the optional compact OMP layout and Windows Path Link opening through WezTerm.
+- Remove the bundled `/review` prompt; code review remains the host's responsibility.
 
 ## License
 
