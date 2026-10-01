@@ -12,6 +12,10 @@ _Avoid_: File link, clickable path
 The conversion of supported assistant-display Markdown into Markdown containing Path Links without changing session history or model context.
 _Avoid_: Path rewriting, message mutation
 
+**Directory Opening**:
+An action that opens the containing directory of an existing local file, or opens an existing local directory itself, while preserving the original message.
+_Avoid_: File opening, Path Rendering
+
 **Image Request**:
 A user's request for an image through Codex's built-in image generation tool, fulfilled through one or more Image Runs. Its creative instructions and reference inputs remain the user's unless changes are explicitly authorized.
 _Avoid_: Image job, generation session

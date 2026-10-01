@@ -1,10 +1,10 @@
 # pi-everyday
 
-Small, additive conveniences for [Pi](https://pi.dev):
+Small, additive conveniences for [Pi](https://pi.dev) and OMP:
 
 - Show remaining OpenAI Codex subscription usage.
 - Keep old images out of future model requests without changing session history.
-- Turn existing local paths in assistant output into Path Links.
+- Render local Path Links in Pi and open local file links as directories in Windows/macOS WezTerm.
 - Generate or edit images through your Codex subscription, with recovery and bounded retries.
 
 This package is primarily maintained for personal use. Public use is welcome, but maintenance and compatibility are best effort.
@@ -62,7 +62,7 @@ Session history, text, tool calls, and saved JSONL remain unchanged. An old imag
 
 ### Path Links
 
-Path Rendering turns supported existing local paths into terminal links:
+In Pi, Path Rendering turns supported existing local paths into terminal links:
 
 - A file links to its containing directory.
 - A directory links to itself.
@@ -73,6 +73,12 @@ Path Rendering turns supported existing local paths into terminal links:
 For example, Pi can render generic paths such as `./output/result.txt`, `~/project`, or `/path/to/project` as actions when they exist. Missing paths, URLs, Markdown images, and every fenced block remain unchanged.
 
 Path Rendering affects display only. It does not alter session history or model context.
+
+OMP uses its native existing local Markdown links. This package does not add a plain-text path transformer to OMP.
+
+Directory Opening is a separate terminal action: the shared WezTerm module opens a file's containing directory or a directory itself on Windows and macOS. It applies to **all `file:` links** in that WezTerm configuration, including links emitted by OMP, Pi, and other programs. Web links keep their existing behavior. Original messages, session history, and model context stay unchanged.
+
+Enable Directory Opening with the [WezTerm setup](#wezterm-directory-opening-on-windows-and-macos) below. Paths must be directly accessible on the current computer, including locally synced OneDrive resources. The module performs no SSH remote resolution, WSL conversion, or Windows/macOS path mapping. An inaccessible path reports its actual error and cancels the default file action; it never falls back to opening the file.
 
 ### Codex image generation
 
@@ -108,7 +114,8 @@ Default generated images and diagnostics use `.scratch/`, which should remain ex
 - Node.js 22.19.0 or newer.
 - macOS, Windows, and Linux.
 - Path Links require a terminal that supports OSC 8 hyperlinks and `file://` URI handling.
-- Some terminals capture mouse input and require their hyperlink modifier while clicking.
+- Windows/macOS Directory Opening uses the bundled WezTerm module with WezTerm 20240203 or newer and Node.js 22.19.0 or newer.
+- Some terminals capture mouse input and require their hyperlink modifier while clicking. The WezTerm module binds Windows Ctrl+click and macOS Cmd+click in both mouse-reporting states.
 - Usage status depends on an undocumented OpenAI endpoint and can stop working without notice.
 - Image generation requires a compatible, authenticated local Codex CLI.
 - Generated images and diagnostics remain after package removal until deleted manually.
@@ -121,42 +128,53 @@ Automated checks run on macOS, Windows, and Linux. Pointer behavior can still va
 
 Confirm that the terminal enables OSC 8 hyperlinks and routes `file://` URIs to the operating system. Try the terminal's normal hyperlink modifier while clicking.
 
-#### Windows: Pi inside Herdr inside WezTerm
+#### WezTerm Directory Opening on Windows and macOS
 
-Herdr captures terminal mouse input and currently does not reliably open local `file://` links on Windows. Keep Pi Everyday's standard Path Links and let WezTerm handle Ctrl+click before Herdr receives it.
+Use the same shipped `src/path-links/wezterm.lua` module on both platforms. It passes the complete `file:` URI as one argument to `src/path-links/resolve-folder.mjs`. Node uses standard URI decoding and an actual filesystem query to distinguish files from directories, then WezTerm opens the resulting native directory path.
 
-Ask your agent to merge the following into `%USERPROFILE%\.wezterm.lua` without replacing unrelated settings or existing mouse bindings:
+Find the **installed package directory on this computer**. Global installations normally use these locations, relative to your home directory:
+
+| Package source | `package_dir` |
+| --- | --- |
+| OMP plugin installation | `wezterm.home_dir .. '/.omp/plugins/node_modules/pi-everyday'` |
+| Pi Git installation (`git:github.com/CWen001/pi-everyday`) | `wezterm.home_dir .. '/.pi/agent/git/github.com/CWen001/pi-everyday'` |
+| Pi npm installation (`npm:pi-everyday`) | `wezterm.home_dir .. '/.pi/agent/npm/node_modules/pi-everyday'` |
+
+Use the location of your active installation, not an old copy left by another package source. For a project-local installation or a custom checkout, set `package_dir` to that actual absolute directory. Confirm it contains both `src/path-links/wezterm.lua` and `src/path-links/resolve-folder.mjs`; the resolver option points to the latter, not the package directory.
+
+Merge this into `%USERPROFILE%\.wezterm.lua` on Windows or `~/.wezterm.lua` on macOS, using the `config` table your existing file returns:
 
 ```lua
 local wezterm = require 'wezterm'
-local act = wezterm.action
+-- Keep your existing config initialization and unrelated settings.
+local config = wezterm.config_builder()
 
-wezterm.on('open-uri', function(_, _, uri)
-  if not uri:match('^file:') then return end
-
-  local path = wezterm.url.parse(uri).file_path:gsub('^/([A-Za-z]:/)', '%1'):gsub('/', '\\')
-  wezterm.open_with(path)
-  return false
-end)
-
-config.mouse_bindings = config.mouse_bindings or {}
-table.insert(config.mouse_bindings, {
-  event = { Down = { streak = 1, button = 'Left' } },
-  mods = 'CTRL',
-  action = act.Nop,
-  mouse_reporting = true,
+-- OMP installation; use the active Pi Git/npm path above when appropriate.
+local package_dir = wezterm.home_dir .. '/.omp/plugins/node_modules/pi-everyday'
+local apply_directory_opening = dofile(package_dir .. '/src/path-links/wezterm.lua')
+apply_directory_opening(config, {
+  node_program = 'node',
+  resolver = package_dir .. '/src/path-links/resolve-folder.mjs',
 })
-table.insert(config.mouse_bindings, {
-  event = { Up = { streak = 1, button = 'Left' } },
-  mods = 'CTRL',
-  action = act.OpenLinkAtMouseCursor,
-  mouse_reporting = true,
-})
+
+-- Keep your remaining unrelated settings.
+return config
 ```
 
-Here, `config` means the table your existing WezTerm configuration returns. Reload Pi after removing any older path-link transformer, then verify Ctrl+click with both an existing local directory and a local file.
+Call `apply_directory_opening` once, after your existing `config.mouse_bindings` assignments and before `return config`. Reuse your existing `config`; do not replace it with a second table or overwrite unrelated settings. The module replaces only single-left-button Down/Up bindings for the platform's link modifier, including macOS `CMD`/`WIN` aliases for `SUPER`. It installs Down=`Nop` and Up=`OpenLinkAtMouseCursor` for both `mouse_reporting=false` and `mouse_reporting=true`; other chords, buttons, streaks, and drag bindings remain intact. This lets WezTerm handle the click even when Herdr or another terminal application captures mouse input.
 
-Do not install a Herdr link-handler plugin, rewrite paths through a sentinel HTTPS domain, or modify installed Pi, Herdr, or WezTerm files. The durable boundary is: Pi Everyday emits standard `file://` Path Links; the user-owned WezTerm configuration opens them.
+Replace the previous `file:` branch or file-only `open-uri` handler with this module. Preserve custom handling for other URI schemes, and register the module before any remaining handler that could return `false` for a `file:` URI. An earlier `return false` stops later handlers: appending this module behind the old file handler leaves that old behavior active. The module lets non-file URI schemes fall through unchanged.
+
+**Use Node.js 22.19.0 or newer.** A GUI-launched WezTerm may have a different `PATH` from your interactive shell. `node_program` defaults to `'node'`; set it to the actual absolute Node executable when that name is unavailable to WezTerm:
+
+- **Windows:** run `(Get-Command node).Source` in PowerShell and use the returned executable path, with forward slashes or a Lua long string. A standard installation might use `node_program = 'C:/Program Files/nodejs/node.exe'`. Use your installed path if it differs.
+- **macOS:** run `command -v node` and `node --version` in your shell. Set `node_program` to the returned absolute executable path. Homebrew commonly provides `/opt/homebrew/bin/node` on Apple Silicon and `/usr/local/bin/node` on Intel; use `command -v node` to locate your actual binary, including version-manager installations.
+
+Reload your WezTerm configuration, then Ctrl+click on Windows or Cmd+click on macOS an existing file link, directory link, and web link. The file opens its parent directory, the directory opens itself, and the web link follows your existing handler/browser behavior. If resolving or opening fails, inspect WezTerm's error log for the actual error and correct the inaccessible resource, helper path, or Node executable.
+
+Package updates ship the module and resolver; they do not edit user-owned WezTerm configuration. Integrate this setup separately on each computer and reload the configuration after updates. Keep standard `file:` links rather than adding a Herdr link-handler plugin, a sentinel HTTPS domain, or edits to installed host/terminal files.
+
+For an unreleased local change, transfer `src/path-links/wezterm.lua` and `src/path-links/resolve-folder.mjs` from the modified checkout to the other computer. A registry reinstall uses the published package, so preserve these local runtime files until a release includes the change. They also work from a separate user-owned directory: load `wezterm.lua` there and set `options.resolver` to the adjacent `resolve-folder.mjs`; the resolver uses Node core modules only.
 
 ### Usage status is absent
 
@@ -189,6 +207,8 @@ pi update npm:pi-everyday
 
 On another computer, install with `pi install npm:pi-everyday`, then use the update command above. Run `/reload` in an active Pi session after updating. If that computer uses the Git source instead, first preserve any local edits, remove that package declaration with `pi remove git:github.com/CWen001/pi-everyday`, then install the npm source; do not keep both sources enabled.
 
+Directory Opening also requires the user-owned WezTerm configuration integration described above. Package updates alone do not install or replace that configuration; reload WezTerm after updating its module.
+
 Update all installed Pi packages:
 
 ```bash
@@ -201,7 +221,7 @@ Remove it:
 pi remove npm:pi-everyday
 ```
 
-Removing the package stops its extensions and removes its bundled skill. It does not delete generated images or diagnostics, or revert user-owned OMP layout settings.
+Removing the package stops its extensions and removes its bundled skill. It does not delete generated images or diagnostics, or revert user-owned OMP layout settings. Remove the Directory Opening module call from your WezTerm configuration before removing the package.
 
 ## Development
 
@@ -216,6 +236,13 @@ pi -e .
 Do not commit credentials, generated images, diagnostics, local paths, or session logs.
 
 Releases are published by GitHub Actions from matching `v*` tags through npm trusted publishing. Local npm tokens are not used for releases.
+
+### 0.3.2
+
+- Add one shared Windows/macOS WezTerm Directory Opening module and Node filesystem resolver: files open their containing directory, directories open themselves, and web links keep their existing handling.
+- Add Windows Ctrl+click and macOS Cmd+click bindings in both mouse-reporting states while preserving unrelated terminal settings.
+- Remove the OMP path-rendering adapter for the unavailable `registerAssistantTextTransformer` API; OMP uses its native existing local Markdown links, while Pi keeps Path Rendering.
+- Document per-computer package/helper paths, Node requirements, and user-owned WezTerm configuration integration.
 
 ### 0.3.1
 

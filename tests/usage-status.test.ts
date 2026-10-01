@@ -1,27 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import piEverydayOmp from "../extensions/omp.ts";
 import { formatUsageStatus } from "../src/usage-status/format.ts";
 import { createOpenAIUsageSource, parseUsagePayload } from "../src/usage-status/openai-source.ts";
 import { registerUsageStatus } from "../src/usage-status/register.ts";
 import type { UsageSource } from "../src/usage-status/types.ts";
-
-test("OMP registers the same additive usage lifecycle", () => {
-  const events: string[] = [];
-  const omp = {
-    on(name: string) {
-      events.push(name);
-    },
-    registerAssistantTextTransformer() {},
-  } as unknown as ExtensionAPI;
-
-  piEverydayOmp(omp);
-
-  assert.ok(events.includes("session_start"));
-  assert.ok(events.includes("turn_end"));
-  assert.ok(events.includes("session_shutdown"));
-});
 
 test("parses and formats primary usage windows", () => {
   const snapshot = parseUsagePayload({

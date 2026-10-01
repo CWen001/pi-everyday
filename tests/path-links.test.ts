@@ -5,7 +5,6 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Markdown, type MarkdownTheme } from "@earendil-works/pi-tui";
-import { registerOmpPathLinks } from "../src/path-links/register-omp.ts";
 import { registerPathLinks } from "../src/path-links/register.ts";
 import { renderPathLinks } from "../src/path-links/transform.ts";
 
@@ -147,42 +146,6 @@ test("Pi overlay composes once, invalidates cached modes, and releases owners in
 
   second.handlers.get("session_shutdown")?.({}, {} as ExtensionContext);
   assert.doesNotMatch(cached.render(300).join("\n"), /file:\/\//);
-});
-
-test("OMP adapter transforms streaming and finalized assistant display", () => {
-  type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
-  type Transformer = (markdown: string, context: { isStreaming: boolean }) => string;
-  const handlers = new Map<string, Handler>();
-  let transform: Transformer | undefined;
-  const omp = {
-    on(name: string, handler: Handler) {
-      handlers.set(name, handler);
-    },
-    registerAssistantTextTransformer(transformer: Transformer) {
-      transform = transformer;
-    },
-  };
-
-  registerOmpPathLinks(omp);
-  handlers.get("session_start")?.({}, { cwd: root } as ExtensionContext);
-
-  assert.ok(transform);
-  const localMarkdownLink = "[result](output/nested/result.txt)";
-  assert.match(
-    transform(localMarkdownLink, { isStreaming: true }),
-    /^\[result\]\(file:\/\//,
-  );
-  assert.match(
-    transform(localMarkdownLink, { isStreaming: false }),
-    /^\[result\]\(file:\/\//,
-  );
-});
-
-test("OMP adapter leaves unsupported hosts untouched", () => {
-  let subscribed = false;
-
-  assert.doesNotThrow(() => registerOmpPathLinks({ on() { subscribed = true; } }));
-  assert.equal(subscribed, false);
 });
 
 test("does not alter missing paths, URLs, links, or source-code fences", () => {
