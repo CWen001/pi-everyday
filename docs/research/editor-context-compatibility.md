@@ -59,4 +59,14 @@ An upstream contribution, local development fork, or deployment of a patched ext
 - Pi-side Editor Context TDD: not started; the prerequisite compatibility gate remains blocked.
 - Windows automated feature checks and Windows/macOS complete VS Code → Herdr → Pi acceptance: pending. Existing local macOS bridge checks are not package-level cross-platform acceptance.
 - Full existing package check on macOS: `npm run check` passed (TypeScript check and 78 tests). This is a baseline regression result; it does not certify the blocked Editor Context feature.
-- Independent Standards and Spec reviews: pending.
+- Independent Standards and Spec reviews: two fresh read-only Codex runs reviewed `git diff f15168d...4b0488c` separately. Both inspected source and recorded evidence; neither independently reran the socket probe.
+
+### Standards
+
+No actionable findings. The probe uses existing dependencies, stays outside published runtime and normal tests, contains synthetic data, and documents its limits. No baseline smell warranted a change. The reviewer also checked script syntax and pinned source hashes.
+
+### Spec
+
+No actionable defect in the prerequisite-only work. The reviewer confirmed that missing pause state and unconditional initial context justify the spec's explicit stop condition. The remaining implementation, migration guidance, feature tests, and Windows/macOS workflow validation are unfinished requirements. The package regression result does not establish feature acceptance.
+
+Summary: Standards 0 actionable findings; Spec 0 actionable findings in the blocker investigation. Editor Context feature acceptance remains blocked.
