@@ -4,6 +4,14 @@ Pi Everyday provides small, additive conveniences that leave host behavior intac
 
 ## Language
 
+**Editor Context**:
+The editor's current file and selected text made available to a Pi conversation, including selection locations and whether the document has unsaved changes.
+_Avoid_: Project context, file contents on disk
+
+**Context Attachment**:
+Editor Context included with a user's message when automatic sharing is enabled for that Pi session. Editor changes alone do not send a message to the model.
+_Avoid_: Continuous streaming, selection submission
+
 **Path Link**:
 A display-only link from an existing local path to its containing folder, or from a local directory to itself.
 _Avoid_: File link, clickable path
