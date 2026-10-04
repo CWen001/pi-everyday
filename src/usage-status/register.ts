@@ -49,8 +49,8 @@ export function registerUsageStatus(
     void (async () => {
       try {
         const snapshot = await Promise.race([currentSource.load(controller.signal), aborted]);
-        if (abortController === controller && !controller.signal.aborted) {
-          publish(ctx, snapshot ? formatUsageStatus(snapshot) : undefined);
+        if (abortController === controller) {
+          publish(ctx, !controller.signal.aborted && snapshot ? formatUsageStatus(snapshot) : undefined);
         }
       } catch {
         if (abortController === controller) publish(ctx, undefined);

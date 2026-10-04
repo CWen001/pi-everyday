@@ -94,6 +94,17 @@ test("the whole refresh expires even when its source ignores cancellation", asyn
   h.emit("session_shutdown");
 });
 
+test("expiry hides stale status even when a result already won the promise race", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const h = usageHarness({ load: async () => availableUsage });
+  h.emit("session_start"); await flush();
+  assert.equal(h.statuses.at(-1), "5h 75% left");
+  h.advance(300_000); h.emit("turn_end");
+  t.mock.timers.tick(10_000); await flush();
+  assert.equal(h.statuses.at(-1), undefined);
+  h.emit("session_shutdown");
+});
+
 test("session replacement cancels old work without clearing the successor's refresh", async () => {
   const completions: Array<(value: typeof availableUsage) => void> = [];
   const signals: AbortSignal[] = [];

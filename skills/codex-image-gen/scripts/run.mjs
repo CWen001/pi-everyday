@@ -120,7 +120,13 @@ async function findRollouts(root, threadId) {
 function jsonLines(text) {
   let incomplete = false;
   const events = text.split("\n").filter((line) => line.trim()).flatMap((line) => {
-    try { return [JSON.parse(line)]; } catch { incomplete = true; return []; }
+    try {
+      const event = JSON.parse(line);
+      if (!event || typeof event !== "object" || Array.isArray(event) || typeof event.type !== "string" || !event.type) {
+        incomplete = true; return [];
+      }
+      return [event];
+    } catch { incomplete = true; return []; }
   });
   return { events, incomplete };
 }
@@ -196,9 +202,13 @@ async function deliver(run, report, options, codexHome) {
   }
 }
 
-function retryDecision(run, deadline) {
+function retryDecision(runs, deadline) {
+  const run = runs.at(-1);
   const reason = safeMessage(JSON.stringify([run.failures, run.toolErrors, run.error]));
-  if (run.countUncertain || /termination unconfirmed/.test(reason)) return { retry: false, reason: "generation count or process termination is uncertain; no further submission" };
+  if (runs.some((item) => item.countUncertain || /termination unconfirmed/.test(item.error || ""))) {
+    return { retry: false, reason: "generation count or process termination is uncertain; no further submission" };
+  }
+  if (runs.some((item) => item.pending)) return { retry: false, reason: "an image task remains pending; no further submission" };
   if (/login|authenticat|unauthoriz|refus|content.?policy|safety|invalid.?request|invalid.?argument|permission.?denied|billing|quota/i.test(reason)) {
     return { retry: false, reason };
   }
@@ -257,6 +267,8 @@ async function main(report) {
       if (attempt > 1) {
         await recoverRuns(report, options, codexHome);
         if (report.images.length || report.errors.length || report.submissions >= maxAttempts) break;
+        const decision = retryDecision(report.runs, deadline);
+        if (!decision.retry) { report.errors.push(decision.reason); break; }
       }
       const run = { attempt, stdout: "", check: { status: "incomplete", warnings: [], violations: [] } };
       report.runs.push(run);
@@ -285,7 +297,7 @@ async function main(report) {
       // Re-read known runs before any new submission. A late result wins over a retry.
       await recoverRuns(report, options, codexHome);
       if (report.images.length || report.errors.length) break;
-      const decision = retryDecision(run, deadline);
+      const decision = retryDecision(report.runs, deadline);
       if (!decision.retry || report.submissions >= maxAttempts || attempt === maxAttempts || Date.now() + decision.delay >= deadline) {
         report.errors.push(run.error || decision.reason || "no valid image was delivered");
         break;

@@ -46,12 +46,13 @@ test("a valid image is delivered with an unknown-evidence warning and its origin
   assert.ok(result.output.diagnostic);
 });
 
-for (const scenario of ["success", "duplicate", "inline", "legitimate-tools", "opaque-wrapper", "nonzero", "evolved-features"]) {
+for (const scenario of ["success", "duplicate", "inline", "legitimate-tools", "opaque-wrapper", "nonzero", "evolved-features", "null-stdout", "matched-image-call"]) {
   test(`single-run delivery: ${scenario}`, async (t) => {
     const f = await fixture(t, scenario);
     const result = await f.run();
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.output.images.length, 1);
+    assert.equal(result.output.submissions, 1);
     assert.equal((await f.calls()).length, 1);
     assert.equal((await readFile(result.output.path)).subarray(1, 4).toString(), "PNG");
     assert.equal(result.stdout.includes("iVBOR"), false);
@@ -132,7 +133,7 @@ test("output collision after generation preserves both existing output and sourc
   assert.equal(await realpath(result.output.images[0].path), await realpath(call.artifact));
 });
 
-for (const scenario of ["uncertain-generation", "uncertain-tool", "malformed-event"]) {
+for (const scenario of ["uncertain-generation", "uncertain-tool", "malformed-event", "malformed-object", "malformed-payload", "malformed-item", "unmatched-image-call", "unidentified-image-call"]) {
 test(`uncertain evidence stops further submissions: ${scenario}`, async (t) => {
   const f = await fixture(t, scenario);
   const result = await f.run();
@@ -141,6 +142,36 @@ test(`uncertain evidence stops further submissions: ${scenario}`, async (t) => {
   assert.equal(result.output.runs[0].countUncertain, true);
   assert.equal(result.output.runs[0].check.status, "incomplete");
   assert.match(result.output.errors.join(" "), /uncertain/);
+});
+}
+
+for (const [kind, evidence] of Object.entries({
+  unknown: { type: "item_completed", item: { type: "Extension", kind: "image_gen.generation_v2", id: "late-call", status: "failed" } },
+  pending: { type: "image_generation_begin", call_id: "late-call" },
+})) {
+test(`fresh counter-evidence during backoff revokes authorization: ${kind}`, async (t) => {
+  const f = await fixture(t, "retry");
+  const preload = join(f.root, "late-evidence.mjs");
+  await writeFile(preload, `
+import { createRequire, syncBuiltinESMExports } from "node:module";
+import { readFileSync, appendFileSync } from "node:fs";
+import { join } from "node:path";
+const timers = createRequire(import.meta.url)("node:timers/promises"), sleep = timers.setTimeout;
+timers.setTimeout = async (ms, ...args) => {
+  const result = await sleep(ms, ...args);
+  if (ms === 1000) {
+    const first = JSON.parse(readFileSync(process.env.FAKE_CODEX_CAPTURE, "utf8").trim().split("\\n")[0]);
+    appendFileSync(join(process.env.CODEX_HOME, "sessions", "2026", "rollout-" + first.threadId + ".jsonl"),
+      JSON.stringify({ type: "event_msg", payload: ${JSON.stringify(evidence)} }) + "\\n");
+  }
+  return result;
+};
+syncBuiltinESMExports();
+`);
+  const result = await f.run([], "kite", { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` });
+  assert.equal(result.code, 1);
+  assert.equal((await f.calls()).length, 1);
+  assert.equal(result.output.runs[0][kind === "unknown" ? "countUncertain" : "pending"], true);
 });
 }
 

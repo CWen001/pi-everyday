@@ -4,7 +4,8 @@ const informational = new Set([
   "agent_message", "agent_reasoning", "task_complete", "task_started",
   "token_count", "user_message", "function_call_output", "custom_tool_call_output",
 ]);
-const supportingTools = new Set(["wait", "view_image", "image_gen", "image_gen.imagegen", "image_gen__imagegen"]);
+const supportingTools = new Set(["wait", "view_image"]);
+const imageTools = new Set(["image_gen", "image_gen.imagegen", "image_gen__imagegen"]);
 const prohibitedTools = new Set(["apply_patch", "exec_command", "shell", "shell_command", "write_stdin", "web.run"]);
 
 export function auditRollout(events, threadId) {
@@ -15,6 +16,7 @@ export function auditRollout(events, threadId) {
     throw new Error("rollout session metadata did not match the Codex thread id");
   }
   const generations = new Map();
+  const imageCalls = new Set();
   const warnings = new Set();
   const violations = new Set();
   const toolErrors = [];
@@ -22,7 +24,7 @@ export function auditRollout(events, threadId) {
   let countUncertain = false;
   function unrecognized(message, kind) {
     warnings.add(message);
-    if (typeof kind === "string" && /image[_.]?gen/i.test(kind)) countUncertain = true;
+    if (typeof kind !== "string" || !kind || /image[_.]?gen/i.test(kind)) countUncertain = true;
   }
   function generation(id) {
     if (typeof id !== "string" || !id) {
@@ -83,11 +85,15 @@ export function auditRollout(events, threadId) {
           if (type === "item_completed") completed(item);
           else generation(item.id);
         } else if (!["AgentMessage", "Reasoning", "UserMessage"].includes(item?.type)) {
-          unrecognized("unrecognized completed/started item", item?.kind ?? item?.type);
+          unrecognized("unrecognized completed/started item", item?.type === "Extension" ? item.kind : item?.type);
         }
       } else if (["function_call", "custom_tool_call"].includes(type)) {
         if (prohibitedTools.has(payload.name)) violations.add(`unexpected tool: ${payload.name}`);
-        else if (!supportingTools.has(payload.name)) {
+        else if (imageTools.has(payload.name)) {
+          const id = payload.call_id ?? payload.id;
+          if (typeof id === "string" && id) imageCalls.add(id);
+          else unrecognized("image tool invocation missing a valid call id");
+        } else if (!supportingTools.has(payload.name)) {
           // An exec wrapper can contain arbitrary code. Only native completion evidence
           // establishes the image; this is explicitly NOT a hard tool allowlist.
           unrecognized(payload.name === "exec" ? "exec wrapper behavior is not fully verified" : "unrecognized tool behavior", payload.name);
@@ -107,6 +113,9 @@ export function auditRollout(events, threadId) {
     } else if (!informational.has(event.type)) {
       unrecognized("unrecognized rollout event", event.type);
     }
+  }
+  if ([...imageCalls].some((id) => !generations.has(id))) {
+    unrecognized("image tool invocation missing matching generation evidence");
   }
   const records = [...generations.values()];
   return {
