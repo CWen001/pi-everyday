@@ -127,6 +127,7 @@ function renderMarkdown(data: Ctx): string {
 // receive `context` pushes (drive footer + injection + tools), receive `inject`
 // (drop a mention into the prompt), and send `open` requests.
 interface LiveLink {
+  ready: Promise<void>;
   latest: Ctx | null;
   send: (msg: { type: "open"; path: string; line?: number; endLine?: number; column?: number }) => boolean;
   connected: () => boolean;
@@ -185,21 +186,25 @@ function connectVscode(cwd: string, handlers: {
   const explicit = process.env[PORT_ENV];
   if (!explicit && !(process.env.HERDR_ENV === "1" && ["darwin", "win32"].includes(process.platform))) return null;
 
-  const link: LiveLink = { latest: null, send: () => false, connected: () => false, stop: () => {} };
+  let resolveReady!: () => void;
+  const ready = new Promise<void>(resolve => { resolveReady = resolve; });
+  const link: LiveLink = { ready, latest: null, send: () => false, connected: () => false, stop: () => {} };
   let socket: net.Socket | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let frameDeadline: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   const retry = () => { if (!stopped) timer = setTimeout(dial, 1000).unref(); };
   const dial = () => {
     if (stopped) return;
     // Re-read on reconnect: VS Code can choose a new port after a restart.
     const target = explicit ? { port: validPort(explicit), workspace: null } : discoverVscode(cwd);
-    if (!target?.port) { retry(); return; }
+    if (!target?.port) { resolveReady(); retry(); return; }
     const client = net.connect(target.port, "127.0.0.1");
     socket = client;
     let buffer = "";
     client.setEncoding("utf8");
-    client.setTimeout(3000, () => client.destroy());
+    // Absolute deadlines, rather than inactivity: trickled bytes cannot extend them.
+    frameDeadline = setTimeout(() => client.destroy(), 3000).unref();
     client.on("data", (chunk: string) => {
       if (stopped) return;
       buffer += chunk;
@@ -220,16 +225,27 @@ function connectVscode(cwd: string, handlers: {
                 (target.workspace && path.relative(target.workspace, workspace) !== "")) {
               client.destroy(); return;
             }
-            client.setTimeout(0);
-            link.latest = msg.data as Ctx;
-            handlers.onContext(link.latest);
+            clearTimeout(frameDeadline);
+            frameDeadline = undefined;
+            link.latest = msg.data;
+            resolveReady();
+            handlers.onContext(msg.data);
           } else if (msg.type === "inject" && link.latest && typeof msg.text === "string") {
             handlers.onInject(msg.text);
           }
         } catch { client.destroy(); return; }
       }
+      if (link.latest && !buffer.length) {
+        clearTimeout(frameDeadline);
+        frameDeadline = undefined;
+      } else if (buffer.length && !frameDeadline) {
+        frameDeadline = setTimeout(() => client.destroy(), 3000).unref();
+      }
     });
     client.on("close", () => {
+      clearTimeout(frameDeadline);
+      frameDeadline = undefined;
+      resolveReady();
       socket = undefined;
       link.latest = null;
       if (!stopped) { handlers.onDisconnect(); retry(); }
@@ -241,6 +257,8 @@ function connectVscode(cwd: string, handlers: {
   link.stop = () => {
     stopped = true;
     clearTimeout(timer);
+    clearTimeout(frameDeadline);
+    resolveReady();
     link.latest = null;
     socket?.destroy();
   };
@@ -315,9 +333,14 @@ export function registerEditorContext(pi: ExtensionAPI) {
     return null;
   };
 
+  // A branch change or compaction can remove the prior hidden attachment.
+  pi.on("session_tree", () => { lastInjectedHash = ""; });
+  pi.on("session_compact", () => { lastInjectedHash = ""; });
+
   // ---- Smart auto-injection: attach active file + selection to each turn ----
   pi.on("before_agent_start", async (_event, _ctx) => {
     if (!autoInject) return;
+    await link?.ready;
     const data = link?.latest;
     if (!data) return;
     const payload = buildInjection(data);

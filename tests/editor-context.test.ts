@@ -82,6 +82,7 @@ test("editor context via the Pi tool/event Seam", { timeout: 40000 }, async (t) 
     path: "draft.tex", languageId: "latex", cursorLine: 12,
     selections: [{ startLine: 12, endLine: 14, text: "所选段落", truncated: false }],
   } };
+  let initialSnapshot = true;
   const server = net.createServer(socket => {
     clients.add(socket);
     socket.on("close", () => clients.delete(socket));
@@ -94,7 +95,7 @@ test("editor context via the Pi tool/event Seam", { timeout: 40000 }, async (t) 
         requests.push(JSON.parse(buffer.slice(0, end))); buffer = buffer.slice(end + 1);
       }
     });
-    socket.write(JSON.stringify({ type: "context", data }) + "\n");
+    if (initialSnapshot) socket.write(JSON.stringify({ type: "context", data }) + "\n");
   });
   const sessions: ReturnType<typeof session>[] = [];
   t.after(async () => {
@@ -119,8 +120,9 @@ test("editor context via the Pi tool/event Seam", { timeout: 40000 }, async (t) 
     const headless = session(cwd, false); sessions.push(headless);
     headless.ctx.ui = new Proxy({} as typeof headless.ctx.ui, { get() { assert.fail("headless session must not use UI"); } });
     await headless.start();
-    await waitFor(async () => (await headless.read()).includes("所选段落"), "headless context arrives");
-    assert.match((await headless.attach()).message.content, /所选段落/);
+    assert.match((await headless.attach()).message.content, /所选段落/, "an immediate first prompt waits for initial context");
+    for (const c of clients) c.write(JSON.stringify({ type: "inject", text: "headless mention" }) + "\n");
+    await delay(50); // The headless UI proxy must remain untouched by inject frames.
     await headless.stop();
   });
 
@@ -151,7 +153,9 @@ test("editor context via the Pi tool/event Seam", { timeout: 40000 }, async (t) 
     assert.equal(opened.details.sent, true);
     await waitFor(() => requests.length > 0, "file navigation reaches bridge");
     assert.deepEqual(requests.at(-1), { type: "open", path: "draft.tex", line: 12 });
-    assert.equal(writer.draft(), "existing draft");
+    assert.equal(writer.draft(), "existing draft headless mention");
+    for (const c of clients) c.write(JSON.stringify({ type: "inject", text: "new mention" }) + "\n");
+    await waitFor(() => writer.draft() === "existing draft headless mention new mention", "inject appends without replacing draft");
     assert.deepEqual(writer.messages, []);
   });
 
@@ -174,6 +178,39 @@ test("editor context via the Pi tool/event Seam", { timeout: 40000 }, async (t) 
     await writer.start();
     await waitFor(async () => (await writer.read()).includes("所选段落"), "new conversation connected");
     assert.match((await writer.attach()).message.content, /所选段落/);
+  });
+
+  await t.test("tree navigation and compaction invalidate attachment deduplication", async () => {
+    for (const event of ["session_tree", "session_compact"]) {
+      await writer.events.get(event)!({}, writer.ctx);
+      assert.match((await writer.attach()).message.content, /所选段落/);
+      assert.equal(await writer.attach(), undefined);
+    }
+  });
+
+  await t.test("an absolute handshake deadline defeats trickling input", async () => {
+    initialSnapshot = false;
+    const before = new Set(clients);
+    const s = session(cwd); sessions.push(s);
+    let trickle: ReturnType<typeof setInterval> | undefined;
+    try {
+      await s.start();
+      await waitFor(() => [...clients].some(c => !before.has(c)), "silent bridge accepts client");
+      const socket = [...clients].find(c => !before.has(c))!;
+      trickle = setInterval(() => { if (!socket.destroyed) socket.write(" "); }, 100);
+      await waitFor(() => socket.destroyed, "initial deadline closes an unvalidated trickling peer");
+      assert.equal(await s.attach(), undefined);
+      assert.equal(s.statuses.at(-1), undefined);
+    } finally {
+      clearInterval(trickle); initialSnapshot = true; await s.stop();
+    }
+  });
+
+  await t.test("an incomplete frame invalidates stale context after its deadline", async () => {
+    for (const c of clients) c.write('{"type":');
+    await waitFor(async () => (await writer.read()).includes("Not connected"), "partial frame deadline clears context");
+    assert.equal(await writer.attach(), undefined);
+    await waitFor(async () => (await writer.read()).includes("所选段落"), "valid context recovers after deadline");
   });
 
   await t.test("Herdr discovers one native workspace, stays quiet elsewhere, rejects ambiguity", {

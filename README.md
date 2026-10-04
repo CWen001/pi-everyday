@@ -57,6 +57,8 @@ This is an optional host-layout preference, not an automatic package setting. Pi
 
 ### VS Code editor context (Pi)
 
+**Currently available on the Git source; npm 0.3.2 does not include this integration.** Update an existing Git installation with `pi update git:github.com/CWen001/pi-everyday`, then run `/reload` after completing the companion migration below. Keep the Git source for this feature until an npm release includes it.
+
 Use the existing [VS Code Pi Agent Bridge](https://github.com/zenyui/vscode-pi) (`zenyui.vscode-pi-bridge`). Pi Everyday supplies the Pi side; no new VS Code plugin is required. This integration is enabled automatically when a matching local editor is available. OMP remains unchanged.
 
 **Migration:** before using this feature, set VS Code's `piContext.autoInstallCompanion` to `false`, then back up and move the old `pi-vscode-context.ts` outside Pi's extension directories. Check both personal and project extensions. Keep exactly one Pi-side implementation enabled to avoid duplicate tools, messages and statuses. The package never edits your VS Code settings or removes personal extensions. To roll back, use a pre-integration package revision before restoring the old companion.
@@ -226,7 +228,7 @@ Update this package:
 pi update npm:pi-everyday
 ```
 
-On another computer, install with `pi install npm:pi-everyday`, then use the update command above. Run `/reload` in an active Pi session after updating. If that computer uses the Git source instead, first preserve any local edits, remove that package declaration with `pi remove git:github.com/CWen001/pi-everyday`, then install the npm source; do not keep both sources enabled.
+On another computer, install the published version with `pi install npm:pi-everyday`, then use the update command above. For an existing Git installation, preserve local edits and run `pi update git:github.com/CWen001/pi-everyday`; this also provides unreleased changes such as Editor Context. Run `/reload` after updating. Keep one package source enabled. Switch from Git to npm only after the desired functionality is included in a published release.
 
 Directory Opening also requires the user-owned WezTerm configuration integration described above. Package updates alone do not install or replace that configuration; reload WezTerm after updating its module.
 
