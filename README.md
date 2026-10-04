@@ -31,9 +31,9 @@ Pi packages execute with the same system access as Pi. Review the source before 
 
 ### OpenAI usage status
 
-**Quota display is currently unavailable on this development/Git revision.** The current Pi `openai` ChatGPT login has a different token contract; a supported quota-query endpoint has not been established. The legacy `openai-codex` reader has been removed. This revision reads no usage credentials and sends no quota requests, in Pi or OMP. Review usage in [ChatGPT Settings → Usage](https://chatgpt.com/settings/usage); see the [source-backed gate](docs/research/openai-usage-contract.md).
+**Quota display is unavailable in 0.4.0.** The current Pi `openai` ChatGPT login has a different token contract; a supported quota-query endpoint has not been established. The legacy `openai-codex` reader has been removed. This revision reads no usage credentials and sends no quota requests, in Pi or OMP. Review usage in [ChatGPT Settings → Usage](https://chatgpt.com/settings/usage); see the [source-backed gate](docs/research/openai-usage-contract.md).
 
-The optional Usage Refresh lifecycle remains non-blocking, with a ten-second whole-operation deadline and five-minute cooldown. Failed or unavailable queries clear this feature's status; stale or previous-session completions cannot publish. It preserves the native footer and other statuses. npm 0.3.2 retains its older behavior until a new release.
+The optional Usage Refresh lifecycle remains non-blocking, with a ten-second whole-operation deadline and five-minute cooldown. Failed or unavailable queries clear this feature's status; stale or previous-session completions cannot publish. It preserves the native footer and other statuses. This is an intentional change from the legacy reader in npm 0.3.1.
 
 #### Compact OMP status layout
 
@@ -56,7 +56,7 @@ This is an optional host-layout preference, not an automatic package setting. Pi
 
 ### VS Code editor context (Pi)
 
-**Currently available on the Git source; npm 0.3.2 does not include this integration.** Update an existing Git installation with `pi update git:github.com/CWen001/pi-everyday`, then run `/reload` after completing the companion migration below. Keep the Git source for this feature until an npm release includes it.
+**Included in 0.4.0 for both npm and Git installations.** Update your existing source with the matching command in [Update and remove](#update-and-remove), then run `/reload` after completing the companion migration below. Keep one package source enabled.
 
 Use the existing [VS Code Pi Agent Bridge](https://github.com/zenyui/vscode-pi) (`zenyui.vscode-pi-bridge`). Pi Everyday supplies the Pi side; no new VS Code plugin is required. This integration is enabled automatically when a matching local editor is available. OMP remains unchanged.
 
@@ -227,7 +227,7 @@ Update this package:
 pi update npm:pi-everyday
 ```
 
-On another computer, install the published version with `pi install npm:pi-everyday`, then use the update command above. For an existing Git installation, preserve local edits and run `pi update git:github.com/CWen001/pi-everyday`; this also provides unreleased changes such as Editor Context. Run `/reload` after updating. Keep one package source enabled. Switch from Git to npm only after the desired functionality is included in a published release.
+On another computer, install the published version with `pi install npm:pi-everyday`, then use the update command above. For an existing Git installation, preserve local edits and run `pi update git:github.com/CWen001/pi-everyday`. Run `/reload` after updating. Keep one package source enabled. Switch from Git to npm only after the desired functionality is included in a published release.
 
 Directory Opening also requires the user-owned WezTerm configuration integration described above. Package updates alone do not install or replace that configuration; reload WezTerm after updating its module.
 
@@ -259,7 +259,7 @@ Do not commit credentials, generated images, diagnostics, local paths, or sessio
 
 Releases are published by GitHub Actions from matching `v*` tags through npm trusted publishing. Local npm tokens are not used for releases.
 
-### Unreleased
+### 0.4.0
 
 - Target Pi 1.0.2 for development; make usage refresh non-blocking, bounded and session-safe, clearing stale values on failure.
 - Remove legacy quota lookup; keep current ChatGPT quota display hidden until its query contract is verified.
@@ -269,7 +269,7 @@ Releases are published by GitHub Actions from matching `v*` tags through npm tru
 - Add macOS/Windows Herdr workspace discovery using Node's bundled SQLite, live workspace validation, bounded input validation and cleanup.
 - Document replacing the separate companion while retaining the existing VS Code Bridge.
 
-### 0.3.2
+### 0.3.2 (Git-only development; included in 0.4.0)
 
 - Add one shared Windows/macOS WezTerm Directory Opening module and Node filesystem resolver: files open their containing directory, directories open themselves, and web links keep their existing handling.
 - Add Windows Ctrl+click and macOS Cmd+click bindings in both mouse-reporting states while preserving unrelated terminal settings.

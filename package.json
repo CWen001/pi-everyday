@@ -1,6 +1,6 @@
 {
   "name": "pi-everyday",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Small, additive conveniences for everyday Pi use.",
   "type": "module",
   "license": "MIT",
@@ -23,6 +23,7 @@
     "extensions",
     "src",
     "skills/codex-image-gen",
+    "docs/research/openai-usage-contract.md",
     "README.md",
     "LICENSE"
   ],
