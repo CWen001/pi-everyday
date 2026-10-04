@@ -272,6 +272,28 @@ test("the request deadline stops further attempts", async (t) => {
   assert.equal((await f.calls()).length, 1);
 });
 
+test("a deadline reached while refreshing evidence prevents another dispatch", async (t) => {
+  const f = await fixture(t, "always-fail");
+  const preload = join(f.root, "deadline-during-recovery.mjs");
+  await writeFile(preload, `
+import { createRequire, syncBuiltinESMExports } from "node:module";
+const fs = createRequire(import.meta.url)("node:fs/promises"), read = fs.readFile;
+const now = Date.now; let reads = 0, expired = false;
+Date.now = () => now() + (expired ? 31 * 60_000 : 0);
+fs.readFile = async (path, ...args) => {
+  const value = await read(path, ...args);
+  if (String(path).includes("rollout-") && ++reads === 3) expired = true;
+  return value;
+};
+syncBuiltinESMExports();
+`);
+  const result = await f.run([], "kite", { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` });
+  assert.equal(result.code, 1);
+  assert.equal((await f.calls()).length, 1);
+  assert.equal(result.output.runs.length, 1, "expiry must prevent dispatch, not kill a second child after launch");
+  assert.match(result.output.errors.join(" "), /deadline/i);
+});
+
 test("invalid input is rejected before Codex runs", async (t) => {
   const f = await fixture(t);
   for (const [args, prompt] of [[[], " "], [["--image", join(f.root, "missing.png")], "kite"], [["--output"], "kite"], ...["0", "4", "1x", "-1"].map((value): [string[], string] => [["--max-submissions", value], "kite"])] as Array<[string[], string]>) {

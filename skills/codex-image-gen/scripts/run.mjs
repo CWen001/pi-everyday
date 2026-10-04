@@ -281,6 +281,7 @@ async function main(report) {
           report.errors.push("refreshed evidence extends the rate-limit wait; no further submission"); break;
         }
       }
+      if (Date.now() >= deadline) { report.errors.push("Image Request deadline reached before dispatch"); break; }
       const run = { attempt, stdout: "", check: { status: "incomplete", warnings: [], violations: [] } };
       report.runs.push(run);
       try {
