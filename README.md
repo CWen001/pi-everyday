@@ -4,6 +4,7 @@ Small, additive conveniences for [Pi](https://pi.dev) and OMP:
 
 - Show remaining OpenAI Codex subscription usage.
 - Keep old images out of future model requests without changing session history.
+- Receive VS Code file/selection context in Pi, including shared Herdr sessions on macOS and Windows.
 - Render local Path Links in Pi and open local file links as directories in Windows/macOS WezTerm.
 - Generate or edit images through your Codex subscription, with recovery and bounded retries.
 
@@ -54,6 +55,25 @@ The `status` segment includes extension statuses; `showHookStatus: false` suppre
 
 This is an optional host-layout preference, not an automatic package setting. Pi Everyday never overwrites your OMP configuration.
 
+### VS Code editor context (Pi)
+
+Use the existing [VS Code Pi Agent Bridge](https://github.com/zenyui/vscode-pi) (`zenyui.vscode-pi-bridge`). Pi Everyday supplies the Pi side; no new VS Code plugin is required. This integration is enabled automatically when a matching local editor is available. OMP remains unchanged.
+
+**Migration:** before using this feature, set VS Code's `piContext.autoInstallCompanion` to `false`, then back up and move the old `pi-vscode-context.ts` outside Pi's extension directories. Check both personal and project extensions. Keep exactly one Pi-side implementation enabled to avoid duplicate tools, messages and statuses. The package never edits your VS Code settings or removes personal extensions. To roll back, use a pre-integration package revision before restoring the old companion.
+
+- Start Pi inside VS Code's integrated terminal, directly or through Herdr. Select text, then ask Pi about it. The active filename and selection are attached to your message; moving the selection alone sends no message.
+- View the **same Herdr session and pane** from WezTerm to continue using the same Pi. This does not transfer a Pi launched outside Herdr into Herdr.
+- Same-project Pi sessions can independently read the same selection; closing a sibling leaves the writer running. There is no exclusive writer designation or session routing.
+- A compact native status below the input shows the filename and selected lines, or `no selection`. Unmatched sessions stay quiet; disconnected writing sessions invalidate their current context.
+- `/vscode-auto off` stops automatic attachment for this Pi conversation; `/vscode-auto on` resumes it. A new conversation starts with auto-attachment enabled. Explicit reads remain available while auto-attachment is off.
+- `/vscode` supplies the full current editor context on demand. The `vscode_context` and `open_in_editor` tools retain their existing names. Normal file editing remains unchanged.
+
+Direct connections use `PI_VSCODE_PORT`. Every context must report a live workspace containing Pi's working directory. Inside Herdr, a missing port can be recovered from stable VS Code's unique single-folder workspace state: macOS uses `~/Library/Application Support/Code/User/workspaceStorage`; Windows uses `%APPDATA%/Code/User/workspaceStorage`. Saved ports are only discovery hints; a mismatched or ambiguous workspace remains unavailable. Other distributions, multi-root projects, remote/WSL setups and Linux discovery are outside this fallback. Explicit local ports still require a matching workspace.
+
+SQLite reads use Node's bundled `node:sqlite` in a bounded local child process; no separate SQLite installation is needed. Shared terminal environments do not grant an unrelated project access to the editor context. The ordinary no-editor workflow continues without an editor status. Discovery and reconnect continue while the Pi session is alive.
+
+**Bridge limitations:** the existing Bridge uses unauthenticated loopback sockets. Its VS Code sharing-pause control has known snapshot/invalidation gaps, and its send-selection shortcut can broadcast to connected clients. Pi Everyday preserves that external protocol and makes no stronger privacy guarantee. Use selected text only when comfortable sharing it with the active model. The tested baseline is Bridge 0.0.3; real terminal reattachment and display behavior still require per-machine checks.
+
 ### Image context pruning
 
 Images introduced during the current turn remain available to the model. On later turns, their image data is replaced only in the outbound model context with a short instruction to re-read the original path or request the image again.
@@ -102,6 +122,7 @@ Maintain compatibility with current Codex best practices and update the CLI thro
 - Usage status uses the active OpenAI OAuth token only for an in-memory request to the internal usage endpoint. It does not persist the token or account identifier.
 - Path Rendering checks whether candidate paths exist and whether they are files or directories. It does not read file contents or send paths to a remote service.
 - Image context pruning changes only the transient outbound model request. Saved session history is not rewritten.
+- Editor Context can include unsaved selected text. Automatic or explicit attachment sends that content and file paths to the current model and may retain it in the conversation history. Disconnect clears the current cache; it does not erase past messages. See the Bridge limitations and migration steps above.
 - An Image Run sends its prompt and optional reference images to OpenAI through the locally installed Codex CLI and consumes the subscription's image allowance.
 - Codex owns its login and keeps its normal session records under `CODEX_HOME`. The package does not read or store Codex credentials.
 - Image failure diagnostics and Codex records can contain prompts and local paths. Review them before sharing.
@@ -237,6 +258,12 @@ Do not commit credentials, generated images, diagnostics, local paths, or sessio
 
 Releases are published by GitHub Actions from matching `v*` tags through npm trusted publishing. Local npm tokens are not used for releases.
 
+### Unreleased
+
+- Integrate Editor Context into Pi with native low-interference status, existing commands/tools and independent per-session attachment.
+- Add macOS/Windows Herdr workspace discovery using Node's bundled SQLite, live workspace validation, bounded input validation and cleanup.
+- Document replacing the separate companion while retaining the existing VS Code Bridge.
+
 ### 0.3.2
 
 - Add one shared Windows/macOS WezTerm Directory Opening module and Node filesystem resolver: files open their containing directory, directories open themselves, and web links keep their existing handling.
@@ -252,4 +279,4 @@ Releases are published by GitHub Actions from matching `v*` tags through npm tru
 
 ## License
 
-MIT
+MIT. The Editor Context Module derives from zenyui/vscode-pi; its original MIT copyright and license notice are retained in `src/editor-context.ts`.

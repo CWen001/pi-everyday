@@ -40,7 +40,7 @@
     ]
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test tests/path-links.test.ts tests/resolve-folder.test.mjs tests/usage-status.test.ts tests/codex-image-gen.test.ts tests/image-context.test.ts tests/rollout.test.mjs tests/artifact-custody.test.mjs",
+    "test": "node --experimental-strip-types --test tests/path-links.test.ts tests/resolve-folder.test.mjs tests/usage-status.test.ts tests/codex-image-gen.test.ts tests/image-context.test.ts tests/rollout.test.mjs tests/artifact-custody.test.mjs tests/editor-context.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test"
   },
