@@ -44,7 +44,23 @@ An optional absolute companion path selects another source under test. The probe
 - Existing discovery, Chinese-path, explicit-port, reconnect, changed-port, shutdown and ambiguous/mismatched-workspace checks pass.
 - The local TypeScript source passes strict checking using the repository's installed Pi declarations and compiler settings (`.scratch/editor-context/tsconfig.local.json`).
 
-Logs are local artifacts under `.scratch/editor-context/`: `experience-red.log` and `experience-green.log`. Package regression results and independent reviews are recorded below when completed. The standalone probe remains outside `npm test` because it requires the separately installed local companion and macOS workspace facilities.
+Logs are local artifacts under `.scratch/editor-context/`: `experience-red.log` and `experience-green.log`. The standalone probe remains outside `npm test` because it requires the separately installed local companion and macOS workspace facilities.
+
+Final checks passed: `npm run check` (typechecking and 78 package tests), strict local-companion typechecking, the original personal `vscode-herdr.test.mjs`, and the new experience probe. These checks establish the listed synthetic behavior and package baseline; real-host acceptance remains below.
+
+## Independent review
+
+Two parallel, fresh, read-only Pi reviewer processes used `openai-codex/gpt-6-astra`. Reviewed range: `4ad9951109bee255f2ee4dd071df7378da52a9ee...aae6a7a`. Reviewers inspected the local before/after sources as well as the committed patch. Neither reviewer ran tests or modified files; the test evidence above was collected separately.
+
+### Standards
+
+No blockers, documented violations, or actionable smell findings. The local flag keeps status behavior additive, package runtime stays unchanged, and no new abstraction is warranted. Real-host visual and session behavior remains pending.
+
+### Spec
+
+No blocking deviations, missing local implementation requirements, unrequested scope growth, or incorrect changed behavior identified. Actual Herdr reattachment, real Pi processes, rendering/reload, Windows, and general Pi use after closing VS Code remain manual acceptance items rather than claims established by the probe.
+
+Summary: Standards 0 actionable findings; Spec 0 code findings, real-host acceptance pending. Full independent responses and event traces are retained as `.scratch/editor-context/review-local-{standards,spec}.{md,jsonl}`.
 
 ## Remaining acceptance
 
