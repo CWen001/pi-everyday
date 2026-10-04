@@ -127,6 +127,7 @@ function renderMarkdown(data: Ctx): string {
 // receive `context` pushes (drive footer + injection + tools), receive `inject`
 // (drop a mention into the prompt), and send `open` requests.
 interface LiveLink {
+  diagnostic: { source: string; reason: string };
   ready: Promise<void>;
   latest: Ctx | null;
   send: (msg: { type: "open"; path: string; line?: number; endLine?: number; column?: number }) => boolean;
@@ -144,7 +145,7 @@ function insideWorkspace(workspace: string, cwd: string): boolean {
   return relative === "" || (relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative));
 }
 
-function discoverVscode(cwd: string): { port: number; workspace: string } | null {
+function discoverVscode(cwd: string): { target: { port: number; workspace: string } | null; reason: string } {
   // Stable Code single-folder workspaces; other layouts use PI_VSCODE_PORT.
   const storage = process.platform === "win32"
     ? path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "Code", "User", "workspaceStorage")
@@ -152,6 +153,7 @@ function discoverVscode(cwd: string): { port: number; workspace: string } | null
   try {
     const current = fs.realpathSync(cwd);
     const matches: { port: number; workspace: string }[] = [];
+    let matchingWorkspace = false;
     for (const entry of fs.readdirSync(storage)) {
       try {
         const dir = path.join(storage, entry);
@@ -159,6 +161,7 @@ function discoverVscode(cwd: string): { port: number; workspace: string } | null
         if (typeof meta.folder !== "string" || !meta.folder.startsWith("file:")) continue;
         const workspace = fs.realpathSync(fileURLToPath(meta.folder));
         if (!insideWorkspace(workspace, current)) continue;
+        matchingWorkspace = true;
         // Node's bundled SQLite works on both platforms. Isolate its experimental
         // warning in this bounded child, keeping the interactive Pi process quiet.
         const state = execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning", "-e", `
@@ -174,8 +177,9 @@ function discoverVscode(cwd: string): { port: number; workspace: string } | null
         if (port) matches.push({ port, workspace });
       } catch { /* Closed, unavailable, or unrelated workspace. */ }
     }
-    return matches.length === 1 ? matches[0] : null;
-  } catch { return null; }
+    if (matches.length === 1) return { target: matches[0], reason: "connecting" };
+    return { target: null, reason: matches.length > 1 ? "ambiguous-workspace" : matchingWorkspace ? "no-readable-saved-port" : "no-matching-workspace" };
+  } catch { return { target: null, reason: "workspace-storage-unavailable" }; }
 }
 
 function connectVscode(cwd: string, handlers: {
@@ -188,7 +192,10 @@ function connectVscode(cwd: string, handlers: {
 
   let resolveReady!: () => void;
   const ready = new Promise<void>(resolve => { resolveReady = resolve; });
-  const link: LiveLink = { ready, latest: null, send: () => false, connected: () => false, stop: () => {} };
+  const link: LiveLink = {
+    diagnostic: { source: explicit ? PORT_ENV : "Herdr workspaceStorage", reason: "connecting" },
+    ready, latest: null, send: () => false, connected: () => false, stop: () => {},
+  };
   let socket: net.Socket | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let frameDeadline: ReturnType<typeof setTimeout> | undefined;
@@ -197,18 +204,23 @@ function connectVscode(cwd: string, handlers: {
   const dial = () => {
     if (stopped) return;
     // Re-read on reconnect: VS Code can choose a new port after a restart.
-    const target = explicit ? { port: validPort(explicit), workspace: null } : discoverVscode(cwd);
-    if (!target?.port) { resolveReady(); retry(); return; }
+    const port = explicit ? validPort(explicit) : null;
+    const discovery = explicit
+      ? { target: port ? { port, workspace: null } : null, reason: port ? "connecting" : "invalid-port" }
+      : discoverVscode(cwd);
+    link.diagnostic.reason = discovery.reason;
+    const target = discovery.target;
+    if (!target) { resolveReady(); retry(); return; }
     const client = net.connect(target.port, "127.0.0.1");
     socket = client;
     let buffer = "";
     client.setEncoding("utf8");
     // Absolute deadlines, rather than inactivity: trickled bytes cannot extend them.
-    frameDeadline = setTimeout(() => client.destroy(), 3000).unref();
+    frameDeadline = setTimeout(() => { link.diagnostic.reason = "handshake-timeout"; client.destroy(); }, 3000).unref();
     client.on("data", (chunk: string) => {
       if (stopped) return;
       buffer += chunk;
-      if (buffer.length > 2 * 1024 * 1024) { client.destroy(); return; }
+      if (buffer.length > 2 * 1024 * 1024) { link.diagnostic.reason = "oversized-frame"; client.destroy(); return; }
       let idx: number;
       while ((idx = buffer.indexOf("\n")) >= 0) {
         const line = buffer.slice(0, idx);
@@ -217,29 +229,31 @@ function connectVscode(cwd: string, handlers: {
         try {
           const msg = JSON.parse(line);
           if (msg.type === "context") {
-            if (!isContext(msg.data)) { client.destroy(); return; }
+            if (!isContext(msg.data)) { link.diagnostic.reason = "invalid-context"; client.destroy(); return; }
             // A saved port can be stale/reused. Verify the project before exposing data.
             if (typeof msg.data.workspace !== "string") { client.destroy(); return; }
             const workspace = fs.realpathSync(msg.data.workspace);
             if (!insideWorkspace(workspace, fs.realpathSync(cwd)) ||
                 (target.workspace && path.relative(target.workspace, workspace) !== "")) {
+              link.diagnostic.reason = "workspace-mismatch";
               client.destroy(); return;
             }
             clearTimeout(frameDeadline);
             frameDeadline = undefined;
             link.latest = msg.data;
+            link.diagnostic.reason = "connected";
             resolveReady();
             handlers.onContext(msg.data);
           } else if (msg.type === "inject" && link.latest && typeof msg.text === "string") {
             handlers.onInject(msg.text);
           }
-        } catch { client.destroy(); return; }
+        } catch { link.diagnostic.reason = "invalid-context"; client.destroy(); return; }
       }
       if (link.latest && !buffer.length) {
         clearTimeout(frameDeadline);
         frameDeadline = undefined;
       } else if (buffer.length && !frameDeadline) {
-        frameDeadline = setTimeout(() => client.destroy(), 3000).unref();
+        frameDeadline = setTimeout(() => { link.diagnostic.reason = "frame-timeout"; client.destroy(); }, 3000).unref();
       }
     });
     client.on("close", () => {
@@ -248,9 +262,13 @@ function connectVscode(cwd: string, handlers: {
       resolveReady();
       socket = undefined;
       link.latest = null;
+      if (link.diagnostic.reason === "connected") link.diagnostic.reason = "bridge-disconnected";
       if (!stopped) { handlers.onDisconnect(); retry(); }
     });
-    client.on("error", () => client.destroy());
+    client.on("error", (error: NodeJS.ErrnoException) => {
+      link.diagnostic.reason = error.code === "ECONNREFUSED" ? "connection-refused" : "socket-error";
+      client.destroy();
+    });
   };
   link.connected = () => !!socket && socket.readyState === "open" && !!link.latest;
   link.send = (msg) => link.connected() ? socket!.write(JSON.stringify(msg) + "\n") : false;
@@ -269,7 +287,7 @@ function connectVscode(cwd: string, handlers: {
 export function registerEditorContext(pi: ExtensionAPI) {
   let lastInjectedHash = "";
   let link: LiveLink | null = null;
-  const NO_LINK = "Not connected to VSCode. Open this project in VSCode with Pi Agent Bridge enabled. Herdr discovery supports stable Code on macOS/Windows; other setups need PI_VSCODE_PORT and a matching workspace.";
+  const NO_LINK = "Not connected to VSCode. Run /vscode doctor for a local connection report. Open this project in VSCode with Pi Agent Bridge enabled. Herdr discovery supports stable Code on macOS/Windows; other setups need PI_VSCODE_PORT and a matching workspace.";
 
   // ---- Live footer status + socket link ----
   pi.on("session_start", async (_event, ctx) => {
@@ -422,8 +440,22 @@ export function registerEditorContext(pi: ExtensionAPI) {
 
   // ---- Manual command to inject context on demand ----
   pi.registerCommand("vscode", {
-    description: "Inject current VSCode editor context (open files + selection)",
-    handler: async (_args, ctx) => {
+    description: "Inject current VSCode editor context, or run /vscode doctor for local diagnostics",
+    handler: async (args, ctx) => {
+      if (args.trim().toLowerCase() === "doctor") {
+        await link?.ready;
+        ctx.ui.notify([
+          `Pi cwd: ${ctx.cwd}`,
+          `Discovery: ${link?.diagnostic.source ?? "disabled"}`,
+          `Result: ${link?.connected() ? "connected" : "unavailable"}`,
+          `Reason: ${link?.diagnostic.reason ?? "no direct port and no supported Herdr discovery environment"}`,
+          link?.connected() ? "Next: select text, then send your question. Selection changes alone send no model message."
+            : link?.diagnostic.reason === "invalid-port" || link?.diagnostic.reason === "connection-refused"
+              ? "Next: reopen a VS Code integrated terminal for a current port. In Herdr, an absent PI_VSCODE_PORT enables workspace discovery."
+              : "Next: open this folder in one stable VS Code window with Pi Agent Bridge enabled. /reload does not change Pi cwd.",
+        ].join("\n"), "info");
+        return;
+      }
       const data = link?.latest;
       if (!data) {
         ctx.ui.notify(NO_LINK, "warning");

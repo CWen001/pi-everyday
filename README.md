@@ -59,18 +59,24 @@ This is an optional host-layout preference, not an automatic package setting. Pi
 
 ### VS Code editor context (Pi)
 
-**Included in 0.4.0 for both npm and Git installations.** Update your existing source with the matching command in [Update and remove](#update-and-remove), then run `/reload` after completing the companion migration below. Keep one package source enabled.
+Install [VS Code Pi Agent Bridge](https://github.com/zenyui/vscode-pi) (`zenyui.vscode-pi-bridge`), then install or update Pi Everyday using [Update and remove](#update-and-remove). Pi Everyday supplies the Pi side; no additional VS Code plugin is required. Keep one package source enabled. OMP remains unchanged.
 
-Use the existing [VS Code Pi Agent Bridge](https://github.com/zenyui/vscode-pi) (`zenyui.vscode-pi-bridge`). Pi Everyday supplies the Pi side; no new VS Code plugin is required. This integration is enabled automatically when a matching local editor is available. OMP remains unchanged.
+Package installation prepares the stable VS Code integration automatically before Pi loads extensions. Setup changes only the Bridge installation preference and removes fingerprint-verified redundant integration files; unrelated settings and customized extensions are preserved. Installing without VS Code leaves its configuration untouched.
 
-**Migration:** before using this feature, set VS Code's `piContext.autoInstallCompanion` to `false`, then back up and move the old `pi-vscode-context.ts` outside Pi's extension directories. Check both personal and project extensions. Keep exactly one Pi-side implementation enabled to avoid duplicate tools, messages and statuses. The package never edits your VS Code settings or removes personal extensions. To roll back, use a pre-integration package revision before restoring the old companion.
+For a local checkout, project-specific setup, or installation with lifecycle scripts disabled, run this **from the project directory** before starting Pi, using your active package directory:
+
+```bash
+npm --prefix <active-package-directory> run setup
+```
+
+For example, a personal npm installation normally uses `$HOME/.pi/agent/npm/node_modules/pi-everyday`. A local checkout uses its actual directory. Setup is safe to repeat. After updating an already-running Pi, run `/reload`.
 
 - Start Pi inside VS Code's integrated terminal, directly or through Herdr. Select text, then ask Pi about it. The active filename and selection are attached to your message; moving the selection alone sends no message.
 - View the **same Herdr session and pane** from WezTerm to continue using the same Pi. This does not transfer a Pi launched outside Herdr into Herdr.
 - Same-project Pi sessions can independently read the same selection; closing a sibling leaves the writer running. There is no exclusive writer designation or session routing.
 - A compact native status below the input shows the filename and selected lines, or `no selection`. Unmatched sessions stay quiet; disconnected writing sessions invalidate their current context.
 - `/vscode-auto off` stops automatic attachment for this Pi conversation; `/vscode-auto on` resumes it. A new conversation starts with auto-attachment enabled. Explicit reads remain available while auto-attachment is off.
-- `/vscode` supplies the full current editor context on demand. The `vscode_context` and `open_in_editor` tools retain their existing names. Normal file editing remains unchanged.
+- `/vscode` supplies the full current editor context on demand. `/vscode doctor` explains the current connection locally, without sending diagnostics or editor text to the model. The `vscode_context` and `open_in_editor` tools retain their existing names. Normal file editing remains unchanged.
 
 Direct connections use `PI_VSCODE_PORT`. Every context must report a live workspace containing Pi's working directory. Inside Herdr, a missing port can be recovered from stable VS Code's unique single-folder workspace state: macOS uses `~/Library/Application Support/Code/User/workspaceStorage`; Windows uses `%APPDATA%/Code/User/workspaceStorage`. Saved ports are only discovery hints; a mismatched or ambiguous workspace remains unavailable. Other distributions, multi-root projects, remote/WSL setups and Linux discovery are outside this fallback. Explicit local ports still require a matching workspace.
 
@@ -126,7 +132,7 @@ Maintain compatibility with current Codex best practices and update the CLI thro
 - Usage queries run the local `codex app-server`; Codex manages its own authentication and contacts OpenAI. The package reads only the quota response, not credential files, and starts no inference task.
 - Path Rendering checks whether candidate paths exist and whether they are files or directories. It does not read file contents or send paths to a remote service.
 - Image context pruning changes only the transient outbound model request. Saved session history is not rewritten.
-- Editor Context can include unsaved selected text. Automatic or explicit attachment sends that content and file paths to the current model and may retain it in the conversation history. Disconnect clears the current cache; it does not erase past messages. See the Bridge limitations and migration steps above.
+- Editor Context can include unsaved selected text. Automatic or explicit attachment sends that content and file paths to the current model and may retain it in the conversation history. Disconnect clears the current cache; it does not erase past messages. See the Bridge limitations above. Editor setup changes one installation preference and removes only verified redundant files; package removal does not restore that preference.
 - An Image Run sends its prompt and optional reference images to OpenAI through the locally installed Codex CLI and consumes the subscription's image allowance.
 - Codex owns its login and keeps its normal session records under `CODEX_HOME`. The package does not read or store Codex credentials.
 - Image failure diagnostics and Codex records can contain prompts and local paths. Review them before sharing.
@@ -148,6 +154,19 @@ Default generated images and diagnostics use `.scratch/`, which should remain ex
 Automated checks run on macOS, Windows, and Linux. Pointer behavior can still vary by terminal.
 
 ## Troubleshooting
+
+### VS Code selection is unavailable
+
+Run `/vscode doctor`. It reports Pi's working directory, the discovery method, and a specific connection result without attaching the report to the model.
+
+- `no-matching-workspace` or `workspace-mismatch`: open Pi's project in VS Code, or start Pi from the corresponding workspace directory. For example, VS Code opened on project A cannot supply selections to Pi running in unrelated directory B. `/reload` does not change Pi's working directory.
+- `ambiguous-workspace`: saved state contains multiple matching candidates. Keep one matching workspace available; Pi does not guess which editor to use.
+- `invalid-port` or `connection-refused`: reopen a VS Code integrated terminal for a current port. Inside Herdr, an absent `PI_VSCODE_PORT` enables workspace discovery; a stale explicit port takes precedence over discovery.
+- `workspace-storage-unavailable` or `no-readable-saved-port`: confirm stable VS Code and Bridge are running on this computer. Herdr fallback supports single-folder workspaces on macOS/Windows, not other distributions, multi-root workspaces or remote/WSL setups.
+
+If integration fails during Pi startup, run the setup command above from the project directory before starting Pi again. Check its report for settings or permission errors. Setup leaves unrecognized files in place rather than deleting custom extensions.
+
+Once connected, select text and send your question. Selecting text alone sends no model message. `/vscode-auto on` enables automatic attachment; `/vscode` reads context explicitly. Unchanged attachments are deduplicated.
 
 ### Path Links render but do not open
 
@@ -265,6 +284,8 @@ Releases are published by GitHub Actions from matching `v*` tags through npm tru
 ### Unreleased
 
 - Restore remaining quota and reset-time display through the local Codex app-server, without labels or failure notifications.
+- Prepare stable VS Code integration during installation with bounded, fingerprint-verified cleanup and JSONC-preserving settings updates.
+- Add local `/vscode doctor` connection diagnostics without changing workspace isolation or sending diagnostics to the model.
 
 ### 0.4.0
 
@@ -274,7 +295,7 @@ Releases are published by GitHub Actions from matching `v*` tags through npm tru
 - Add a lower `--max-submissions` allowance for bounded requests and single-call acceptance checks.
 - Integrate Editor Context into Pi with native low-interference status, existing commands/tools and independent per-session attachment.
 - Add macOS/Windows Herdr workspace discovery using Node's bundled SQLite, live workspace validation, bounded input validation and cleanup.
-- Document replacing the separate companion while retaining the existing VS Code Bridge.
+- Retain the existing VS Code Bridge as the editor-side integration.
 
 ### 0.3.2 (Git-only development; included in 0.4.0)
 

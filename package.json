@@ -19,6 +19,9 @@
     "file-links",
     "image-generation"
   ],
+  "bin": {
+    "pi-everyday-setup": "./src/editor-setup.mjs"
+  },
   "files": [
     "extensions",
     "src",
@@ -41,7 +44,9 @@
     ]
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test tests/path-links.test.ts tests/resolve-folder.test.mjs tests/usage-status.test.ts tests/codex-image-gen.test.ts tests/image-context.test.ts tests/rollout.test.mjs tests/artifact-custody.test.mjs tests/editor-context.test.ts",
+    "postinstall": "node src/editor-setup.mjs --install",
+    "setup": "node src/editor-setup.mjs",
+    "test": "node --experimental-strip-types --test tests/path-links.test.ts tests/resolve-folder.test.mjs tests/usage-status.test.ts tests/codex-image-gen.test.ts tests/image-context.test.ts tests/rollout.test.mjs tests/artifact-custody.test.mjs tests/editor-context.test.ts tests/editor-setup.test.mjs",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test"
   },
@@ -62,6 +67,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@silvia-odwyer/photon-node": "^0.3.4"
+    "@silvia-odwyer/photon-node": "^0.3.4",
+    "jsonc-parser": "^3.3.1"
   }
 }

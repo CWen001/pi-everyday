@@ -34,6 +34,7 @@ function session(cwd: string, hasUI = true) {
   const commands = new Map<string, { handler: Handler }>();
   const statuses: Array<string | undefined> = [];
   const messages: unknown[] = [];
+  const notices: string[] = [];
   let draft = "existing draft";
   const ui = {
     setStatus(key: string, value: string | undefined) { assert.equal(key, "vscode"); statuses.push(value); },
@@ -41,7 +42,7 @@ function session(cwd: string, hasUI = true) {
     setFooter() { assert.fail("preserve native footer"); },
     getEditorText: () => draft,
     setEditorText(value: string) { draft = value; },
-    notify() {},
+    notify(text: string) { notices.push(text); },
   };
   const ctx = { cwd, hasUI, ui } as unknown as ExtensionContext;
   registerEditorContext({
@@ -52,7 +53,7 @@ function session(cwd: string, hasUI = true) {
     sendUserMessage: (message: unknown) => messages.push(message),
   } as unknown as ExtensionAPI);
   return {
-    ctx, events, tools, commands, statuses, messages,
+    ctx, events, tools, commands, statuses, messages, notices,
     draft: () => draft,
     start: () => events.get("session_start")!({}, ctx),
     stop: () => events.get("session_shutdown")!({}, ctx),
@@ -68,6 +69,27 @@ async function waitFor(check: () => boolean | Promise<boolean>, label: string) {
   }
   assert.fail(label);
 }
+
+test("local diagnostics explain a missing editor without sending a model message", async (t) => {
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), "pi-editor-doctor-")));
+  const env = { ...process.env };
+  delete process.env.PI_VSCODE_PORT;
+  delete process.env.HERDR_ENV;
+  const s = session(cwd);
+  t.after(async () => {
+    await s.stop();
+    for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key];
+    Object.assign(process.env, env);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+  await s.start();
+  await s.commands.get("vscode")!.handler("doctor", s.ctx);
+  assert.match(s.notices.at(-1)!, /Pi cwd:/);
+  assert.ok(s.notices.at(-1)!.includes(cwd));
+  assert.match(s.notices.at(-1)!, /no direct port.*Herdr/i);
+  assert.deepEqual(s.messages, [], "diagnostics must not become model context");
+  assert.equal(s.statuses.at(-1), undefined, "no editor remains quiet during normal use");
+});
 
 test("editor context via the Pi tool/event Seam", { timeout: 40000 }, async (t) => {
   const home = realpathSync(mkdtempSync(join(tmpdir(), "pi-editor-")));
@@ -133,6 +155,9 @@ test("editor context via the Pi tool/event Seam", { timeout: 40000 }, async (t) 
     assert.match(await s.read(), /Not connected/);
     assert.equal(await s.attach(), undefined);
     assert.equal(s.statuses.at(-1), undefined);
+    await s.commands.get("vscode")!.handler("doctor", s.ctx);
+    assert.match(s.notices.at(-1)!, /workspace-mismatch/);
+    assert.doesNotMatch(s.notices.at(-1)!, /所选段落/);
     await s.stop();
   });
 
@@ -245,12 +270,16 @@ test("editor context via the Pi tool/event Seam", { timeout: 40000 }, async (t) 
     await other.start(); await delay(150);
     assert.equal(other.statuses.at(-1), undefined);
     assert.equal(await other.attach(), undefined);
+    await other.commands.get("vscode")!.handler("doctor", other.ctx);
+    assert.match(other.notices.at(-1)!, /no-matching-workspace/);
     await other.stop();
     descriptor("two");
     const ambiguous = session(cwd); sessions.push(ambiguous);
     await ambiguous.start(); await delay(150);
     assert.match(await ambiguous.read(), /Not connected/);
     assert.equal(ambiguous.statuses.at(-1), undefined);
+    await ambiguous.commands.get("vscode")!.handler("doctor", ambiguous.ctx);
+    assert.match(ambiguous.notices.at(-1)!, /ambiguous-workspace/);
     await ambiguous.stop();
   });
 
