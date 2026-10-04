@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import childProcess from "node:child_process";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import { createOpenAIUsageSource } from "../src/usage-status/openai-source.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerUsageStatus } from "../src/usage-status/register.ts";
 import type { UsageSource } from "../src/usage-status/types.ts";
@@ -36,19 +40,65 @@ function usageHarness(source?: UsageSource, modelRegistry?: ExtensionContext["mo
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 const availableUsage = { rateLimit: { primary: { usedPercent: 25, remainingPercent: 75, windowSeconds: 18000 } }, additionalRateLimits: [] };
 
-test("unverified subscription quota remains hidden without accessing credentials or backend endpoints", async (t) => {
-  let credentials = 0, requests = 0;
-  const registry = { async getApiKeyForProvider() {
-    credentials++;
-    return `header.${Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "legacy-account" } })).toString("base64url")}.signature`;
-  } } as unknown as ExtensionContext["modelRegistry"];
-  t.mock.method(globalThis, "fetch", async () => { requests++; throw new Error("unexpected quota request"); });
-  const h = usageHarness(undefined, registry);
-  h.emit("session_start"); await flush();
-  assert.equal(credentials, 0);
-  assert.equal(requests, 0);
-  assert.ok(h.statuses.every((status) => status === undefined));
-  h.emit("session_shutdown");
+test("Codex RPC drives the native status and silently handles unavailable results", async (t) => {
+  const week = { usedPercent: 29, windowDurationMins: 10080, resetsAt: 1_000_000 + 486000 };
+  for (const scenario of ["weekly", "both", "invalid", "rpc-error", "exit", "missing-cli", "pipe-error", "oversized", "cancel", "timeout"]) {
+    await t.test(scenario, async (t) => {
+      t.mock.method(Date, "now", () => 1_000_000_000);
+      if (scenario === "timeout") t.mock.timers.enable({ apis: ["setTimeout"] });
+      const child = Object.assign(new EventEmitter(), {
+        stdin: new PassThrough(), stdout: new PassThrough(), killed: false,
+        kill() { this.killed = true; queueMicrotask(() => child.emit("close", null)); return true; },
+      });
+      const methods: string[] = [];
+      child.stdin.on("data", (chunk) => {
+        const request = JSON.parse(String(chunk));
+        methods.push(request.method);
+        queueMicrotask(() => {
+          if (request.method === "initialize") {
+            child.stdout.write('{"method":"account/updated"}\n');
+            child.stdout.write(JSON.stringify({ id: request.id, result: {} }) + "\n");
+          } else if (request.method === "account/rateLimits/read") {
+            if (scenario === "cancel" || scenario === "timeout") return;
+            if (scenario === "exit") { child.emit("close", 1); return; }
+            if (scenario === "pipe-error") { child.stdin.emit("error", new Error("EPIPE")); return; }
+            if (scenario === "oversized") { child.stdout.write("x".repeat(1024 * 1024 + 1)); return; }
+            const primary = scenario === "invalid" ? { ...week, usedPercent: "29" } : week;
+            const secondary = scenario === "both" ? { usedPercent: 10, windowDurationMins: 300 } : null;
+            const reply = JSON.stringify(scenario === "rpc-error" ? { id: request.id, error: { code: -1 } } : {
+              id: request.id, result: {
+                rateLimits: { primary: { ...week, usedPercent: 99 } },
+                rateLimitsByLimitId: { codex: { primary, secondary }, other: { primary: week } },
+              },
+            }) + "\n";
+            child.stdout.write(reply.slice(0, 20)); child.stdout.write(reply.slice(20));
+          }
+        });
+      });
+      t.mock.method(childProcess, "spawn", (command: string, args: string[]) => {
+        assert.equal(command, "codex"); assert.deepEqual(args, ["app-server"]);
+        if (scenario === "missing-cli") queueMicrotask(() => child.emit("error", new Error("ENOENT")));
+        return child;
+      });
+      t.mock.method(globalThis, "fetch", () => { throw new Error("must not query with Pi credentials"); });
+      const h = usageHarness(undefined, { getApiKeyForProvider() {
+        throw new Error("must not read Pi credentials");
+      } } as unknown as ExtensionContext["modelRegistry"]);
+      h.emit("session_start"); await flush();
+      if (scenario === "cancel") h.emit("session_shutdown");
+      if (scenario === "timeout") { t.mock.timers.tick(10_000); await flush(); }
+      assert.equal(h.statuses.at(-1), scenario === "weekly" ? "7d 71% left (5d 15h)" :
+        scenario === "both" ? "7d 71% left (5d 15h) · 5h 90% left" : undefined);
+      assert.equal(child.killed, true, "owned process must be stopped after success, failure or cancellation");
+      if (scenario === "weekly") assert.deepEqual(methods, ["initialize", "initialized", "account/rateLimits/read"]);
+      h.emit("session_shutdown");
+    });
+  }
+});
+
+test("an already cancelled quota read does not launch Codex", async (t) => {
+  t.mock.method(childProcess, "spawn", () => { assert.fail("must not spawn"); });
+  await assert.rejects(() => createOpenAIUsageSource().load(AbortSignal.abort()), { name: "AbortError" });
 });
 
 test("session events return while optional usage is still pending", (t) => {

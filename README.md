@@ -2,6 +2,7 @@
 
 Small, additive conveniences for [Pi](https://pi.dev) and OMP:
 
+- Show remaining subscription quota through your locally authenticated Codex CLI.
 - Keep old images out of future model requests without changing session history.
 - Receive VS Code file/selection context in Pi, including shared Herdr sessions on macOS and Windows.
 - Render local Path Links in Pi and open local file links as directories in Windows/macOS WezTerm.
@@ -31,9 +32,11 @@ Pi packages execute with the same system access as Pi. Review the source before 
 
 ### OpenAI usage status
 
-**Quota display is unavailable in 0.4.0.** The current Pi `openai` ChatGPT login has a different token contract; a supported quota-query endpoint has not been established. The legacy `openai-codex` reader has been removed. This revision reads no usage credentials and sends no quota requests, in Pi or OMP. Review usage in [ChatGPT Settings → Usage](https://chatgpt.com/settings/usage); see the [source-backed gate](docs/research/openai-usage-contract.md).
+Shows remaining quota and reset time, for example `7d 71% left (5d 14h)`, using the official Codex app-server `account/rateLimits/read` method. Install and log into Codex CLI on the same machine. Only returned usage windows are displayed; there are no extra labels or notifications.
 
-The optional Usage Refresh lifecycle remains non-blocking, with a ten-second whole-operation deadline and five-minute cooldown. Failed or unavailable queries clear this feature's status; stale or previous-session completions cannot publish. It preserves the native footer and other statuses. This is an intentional change from the legacy reader in npm 0.3.1.
+This is the local Codex account's quota, independent of Pi's selected model or login. The extension does not read Pi credentials or claim support for querying the new `openai` login directly; see the [authentication distinction](docs/research/openai-usage-contract.md).
+
+Refresh is non-blocking, with a ten-second deadline and five-minute cooldown. Missing CLI, failed or unavailable queries silently hide the status. Each query's process is stopped when done or cancelled. The native footer and other statuses are preserved.
 
 #### Compact OMP status layout
 
@@ -120,7 +123,7 @@ Maintain compatibility with current Codex best practices and update the CLI thro
 ## Privacy and security
 
 - The package includes no telemetry.
-- The default usage source is currently unavailable and accesses no credentials or quota endpoints. Restoring it requires a verified current-login query contract.
+- Usage queries run the local `codex app-server`; Codex manages its own authentication and contacts OpenAI. The package reads only the quota response, not credential files, and starts no inference task.
 - Path Rendering checks whether candidate paths exist and whether they are files or directories. It does not read file contents or send paths to a remote service.
 - Image context pruning changes only the transient outbound model request. Saved session history is not rewritten.
 - Editor Context can include unsaved selected text. Automatic or explicit attachment sends that content and file paths to the current model and may retain it in the conversation history. Disconnect clears the current cache; it does not erase past messages. See the Bridge limitations and migration steps above.
@@ -138,7 +141,7 @@ Default generated images and diagnostics use `.scratch/`, which should remain ex
 - Path Links require a terminal that supports OSC 8 hyperlinks and `file://` URI handling.
 - Windows/macOS Directory Opening uses the bundled WezTerm module with WezTerm 20240203 or newer and Node.js 22.19.0 or newer.
 - Some terminals capture mouse input and require their hyperlink modifier while clicking. The WezTerm module binds Windows Ctrl+click and macOS Cmd+click in both mouse-reporting states.
-- Current ChatGPT quota display is blocked pending a supported query contract; usage remains hidden.
+- Quota display requires an authenticated `codex` executable on Pi's PATH. Verified with Codex CLI 0.160.0 on macOS; other platforms are best effort (Windows `.cmd`-only launchers are not supported by this reader).
 - Image generation requires a compatible, authenticated local Codex CLI.
 - Generated images and diagnostics remain after package removal until deleted manually.
 
@@ -200,7 +203,7 @@ For an unreleased local change, transfer `src/path-links/wezterm.lua` and `src/p
 
 ### Usage status is absent
 
-The current source revision intentionally hides usage while the new ChatGPT quota-query contract remains unverified. Check [ChatGPT Settings → Usage](https://chatgpt.com/settings/usage). Logging into legacy Codex does not enable a fallback.
+Confirm `codex --version` works from Pi's environment and the CLI is logged in (`codex login`). Run `/reload` after installing or logging in. Quota comes from that Codex account, not Pi's login. Query failures stay silent; usage can also be reviewed in [ChatGPT Settings → Usage](https://chatgpt.com/settings/usage).
 
 ### Image generation fails before starting
 
@@ -258,6 +261,10 @@ pi -e .
 Do not commit credentials, generated images, diagnostics, local paths, or session logs.
 
 Releases are published by GitHub Actions from matching `v*` tags through npm trusted publishing. Local npm tokens are not used for releases.
+
+### Unreleased
+
+- Restore remaining quota and reset-time display through the local Codex app-server, without labels or failure notifications.
 
 ### 0.4.0
 
