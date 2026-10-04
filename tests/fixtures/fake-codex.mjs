@@ -26,7 +26,7 @@ const metadata = { type: "session_meta", payload: { id: threadId, session_id: th
 const begin = (id) => ({ type: "event_msg", payload: { type: "image_generation_begin", call_id: id } });
 const ending = (id, fields) => ({ type: "event_msg", payload: { type: "image_generation_end", call_id: id, status: "completed", saved_path: artifact, ...fields } });
 const events = [metadata, begin("image-1")];
-const fail = ["always-fail", "inner-budget", "over-budget"].includes(scenario) || ((scenario === "retry" || scenario === "inner-retry" || scenario === "late-result") && attempt === 1);
+const fail = ["always-fail", "inner-budget", "over-budget", "uncertain-generation", "uncertain-tool", "malformed-event"].includes(scenario) || ((scenario === "retry" || scenario === "inner-retry" || scenario === "late-result") && attempt === 1);
 if (fail || ["login", "refusal", "rate-limit"].includes(scenario) || (scenario === "rate-reset" && attempt === 1)) {
   events.push(ending("image-1", { status: "failed", saved_path: null,
     failure: scenario === "rate-reset" ? { type: "usage_limit_exceeded", resets_at: Math.floor(Date.now() / 1000) } : { message: fail ? "temporary server error" : scenario, code: fail ? "server_error" : scenario } }));
@@ -41,6 +41,10 @@ if (fail || ["login", "refusal", "rate-limit"].includes(scenario) || (scenario =
 }
 if (scenario === "duplicate") events.push({ type: "event_msg", payload: { type: "item_completed", thread_id: threadId,
   item: { type: "Extension", kind: "image_gen.generation", id: "image-1", status: "completed", savedPath: artifact } } });
+if (scenario === "uncertain-tool") events.push({ type: "response_item", payload: { type: "function_call", name: "image_gen.imagegen_v2" } });
+if (scenario === "malformed-event") events.push(null);
+if (scenario === "uncertain-generation") events.push({ type: "event_msg", payload: { type: "item_completed", item: { type: "Extension", kind: "image_gen.generation_v2", id: "unknown-call", status: "failed" } } });
+if (scenario === "damaged-completion") events.push({ type: "event_msg", payload: { type: "image_generation_end", status: "completed" } });
 if (scenario === "unknown-schema") events.push({ type: "event_msg", payload: { type: "future_event", field: "new" } });
 if (scenario === "wrong-session") events[0].payload.id = "other-session";
 if (scenario === "other-tool") events.push({ type: "response_item", payload: { type: "function_call", name: "apply_patch" } });
@@ -52,6 +56,12 @@ if (scenario === "partial") {
   const bad = join(root, "image-2.png");
   writeFileSync(bad, "invalid image");
   events.push(begin("image-2"), ending("image-2", { saved_path: bad }));
+}
+if (scenario === "conflicting-completion") {
+  const second = join(root, "image-2.png");
+  writeFileSync(second, imageBytes);
+  events.push(begin("image-2"), ending("image-2", { saved_path: second }),
+    ending("image-1", { saved_path: join(root, "conflict.png") }), ending("image-1", {}));
 }
 if (scenario === "output-race") writeFileSync(process.env.FAKE_OUTPUT, "keep existing");
 const rollout = join(process.env.CODEX_HOME, "sessions", "2026", "rollout-" + threadId + ".jsonl");

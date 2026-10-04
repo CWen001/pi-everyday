@@ -15,14 +15,14 @@ Use the local Codex subscription and built-in image_gen. The user chooses artist
 2. Pass the prompt on stdin to [`scripts/run.mjs`](scripts/run.mjs). Repeat `--image` for each supplied reference, within Codex's native limit. Omit unused options.
 
    ```bash
-   node <skill-directory>/scripts/run.mjs [--image <path> ...] [--output <path>]
+   node <skill-directory>/scripts/run.mjs [--image <path> ...] [--output <path>] [--max-submissions <1|2|3>]
    ```
 
-   One Image Request authorizes up to three actual generation submissions, including the first, without further confirmation. The runner owns this budget: it waits, recovers known results, then retries eligible failures. Waiting and saving are not new generations. Do not relaunch the runner merely because a tool wrapper returned a running process; wait for that same process to finish. Do not add an outer retry loop or reroll for aesthetics. For an explicit batch, invoke once per requested image and preserve completed results.
+   One Image Request defaults to an allowance of three observable image-tool submissions, including the first, without further confirmation. Honor a requested lower allowance with `--max-submissions`; use `1` for a single-call request or smoke test with outer regeneration disabled. The runner owns continuation: it waits, recovers known results, then retries eligible failures. Counts come from native call identities; Codex's internal HTTP retries and backend charging are outside this observable allowance. Waiting and saving are not new generations. Do not relaunch the runner merely because a tool wrapper returned a running process; wait for that same process to finish. Do not add an outer retry loop or reroll for aesthetics. For an explicit batch, invoke once per requested image and preserve completed results.
 
 3. Read the returned JSON even on a nonzero exit. Present **every** entry in `images`, in attempt order, displaying each image if supported or providing its accessible path. Explain which came from a retry or late recovery. `path` is only a compatibility alias, not a selected best image.
 
-   Report `status`, relevant `runs[].check` warnings or violations, and reference usage. An incomplete check can accompany a valid image; a partial/failed request may still have useful images. A confirmed violation stops automatic retries but does not erase completed images. Never describe an opaque exec wrapper as fully audited.
+   Report `status`, relevant `runs[].check` warnings or violations, and reference usage. A damaged independent record can leave trusted images available; conflicting artifact identities remain excluded. Generation-count uncertainty stops new submissions while preserving recoverable results. An incomplete check can accompany a valid image; a partial/failed request may still have useful images. A confirmed violation stops automatic retries but does not erase completed images. Never describe an opaque exec wrapper as fully audited.
 
 4. Completion means the runner has terminated and every reported image exists. Keep original Codex artifacts and existing output files intact. For failures, report the actual error and `diagnostic` path; `runs` also identify the originating Rollout and recoverable artifact sources. Never print raw Rollout contents or base64 image data. A delivery failure calls for recovering the existing image, not generating another.
 

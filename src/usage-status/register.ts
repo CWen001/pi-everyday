@@ -20,67 +20,70 @@ export function registerUsageStatus(
   const sourceFactory = options.sourceFactory ?? createOpenAIUsageSource;
   let active = false;
   let source: UsageSource | undefined;
-  let inFlight: Promise<void> | undefined;
   let abortController: AbortController | undefined;
   let lastAttemptAt = Number.NEGATIVE_INFINITY;
-  let lastStatus: string | undefined;
 
   const publish = (ctx: ExtensionContext, status: string | undefined): void => {
     if (!active || !ctx.hasUI) return;
-    lastStatus = status;
     ctx.ui.setStatus(
       STATUS_KEY,
       status ? ctx.ui.theme.fg("dim", status) : undefined,
     );
   };
 
-  const refresh = async (ctx: ExtensionContext, force = false): Promise<void> => {
-    if (!active || !ctx.hasUI || !source) return;
+  const refresh = (ctx: ExtensionContext, force = false): void => {
+    if (!active || !ctx.hasUI || !source || abortController) return;
     const attemptedAt = now();
     if (!force && attemptedAt - lastAttemptAt < REFRESH_COOLDOWN_MS) return;
-    if (inFlight) return inFlight;
     lastAttemptAt = attemptedAt;
 
-    inFlight = (async () => {
-      abortController = new AbortController();
-      const timeout = setTimeout(() => abortController?.abort(), REQUEST_TIMEOUT_MS);
+    const controller = new AbortController();
+    abortController = controller;
+    let onAbort!: () => void;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(controller.signal.reason);
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+    });
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const currentSource = source;
+    void (async () => {
       try {
-        const snapshot = await source?.load(abortController.signal);
-        if (!snapshot) {
-          publish(ctx, undefined);
-          return;
+        const snapshot = await Promise.race([currentSource.load(controller.signal), aborted]);
+        if (abortController === controller && !controller.signal.aborted) {
+          publish(ctx, snapshot ? formatUsageStatus(snapshot) : undefined);
         }
-        publish(ctx, formatUsageStatus(snapshot));
       } catch {
-        // Keep the last successful status and remain silent on optional-network failure.
-        if (lastStatus) publish(ctx, lastStatus);
+        if (abortController === controller) publish(ctx, undefined);
       } finally {
         clearTimeout(timeout);
-        abortController = undefined;
-        inFlight = undefined;
+        controller.signal.removeEventListener("abort", onAbort);
+        if (abortController === controller) abortController = undefined;
       }
     })();
-    return inFlight;
   };
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", (_event, ctx) => {
+    active = false;
+    abortController?.abort();
+    abortController = undefined;
+    source = undefined;
     if (!ctx.hasUI) return;
     active = true;
+    publish(ctx, undefined);
     source = sourceFactory(ctx);
     lastAttemptAt = Number.NEGATIVE_INFINITY;
-    await refresh(ctx, true);
+    void refresh(ctx, true);
   });
 
-  pi.on("turn_end", async (_event, ctx) => {
-    await refresh(ctx);
+  pi.on("turn_end", (_event, ctx) => {
+    void refresh(ctx);
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
     active = false;
     abortController?.abort();
     source = undefined;
-    inFlight = undefined;
-    lastStatus = undefined;
+    abortController = undefined;
     if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
   });
 }

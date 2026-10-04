@@ -18,8 +18,19 @@ export function auditRollout(events, threadId) {
   const warnings = new Set();
   const violations = new Set();
   const toolErrors = [];
+  const evidenceErrors = new Set();
+  let countUncertain = false;
+  function unrecognized(message, kind) {
+    warnings.add(message);
+    if (typeof kind === "string" && /image[_.]?gen/i.test(kind)) countUncertain = true;
+  }
   function generation(id) {
-    if (typeof id !== "string" || !id) throw new Error("image generation missing a valid call id");
+    if (typeof id !== "string" || !id) {
+      evidenceErrors.add("image generation missing a valid call id");
+      warnings.add("invalid image evidence");
+      countUncertain = true;
+      return undefined;
+    }
     if (!generations.has(id)) generations.set(id, { callId: id });
     return generations.get(id);
   }
@@ -29,12 +40,16 @@ export function auditRollout(events, threadId) {
       "imagegen_request_id", "imagegenRequestId", "generation_id", "generationId"];
     if (Object.keys(payload).some((key) => !knownFields.includes(key))) warnings.add("unrecognized completion fields");
     const record = generation(payload.call_id ?? payload.id);
+    if (!record || record.invalid) return;
     const savedPath = payload.saved_path ?? payload.savedPath;
     const data = payload.result;
-    if (record.savedPath && savedPath && record.savedPath !== savedPath) {
-      throw new Error("conflicting artifact provenance for one generation");
+    if ((record.savedPath && savedPath && record.savedPath !== savedPath) ||
+        (record.data && data && record.data !== data)) {
+      record.invalid = true;
+      evidenceErrors.add("conflicting artifact provenance for one generation");
+      warnings.add("invalid image evidence");
+      return;
     }
-    if (record.data && data && record.data !== data) throw new Error("conflicting inline image provenance");
     if (payload.status === "completed") {
       record.status = "completed";
       delete record.failure;
@@ -50,7 +65,9 @@ export function auditRollout(events, threadId) {
   }
   for (const event of events) {
     const payload = event?.payload;
-    if (!event || typeof event !== "object") { warnings.add("malformed rollout event"); continue; }
+    if (!event || typeof event !== "object" || Array.isArray(event)) {
+      warnings.add("malformed rollout event"); countUncertain = true; continue;
+    }
     if (payload?.thread_id != null && payload.thread_id !== threadId) {
       throw new Error("rollout event did not match the Codex thread id");
     }
@@ -66,14 +83,14 @@ export function auditRollout(events, threadId) {
           if (type === "item_completed") completed(item);
           else generation(item.id);
         } else if (!["AgentMessage", "Reasoning", "UserMessage"].includes(item?.type)) {
-          warnings.add("unrecognized completed/started item");
+          unrecognized("unrecognized completed/started item", item?.kind ?? item?.type);
         }
       } else if (["function_call", "custom_tool_call"].includes(type)) {
         if (prohibitedTools.has(payload.name)) violations.add(`unexpected tool: ${payload.name}`);
         else if (!supportingTools.has(payload.name)) {
           // An exec wrapper can contain arbitrary code. Only native completion evidence
           // establishes the image; this is explicitly NOT a hard tool allowlist.
-          warnings.add(payload.name === "exec" ? "exec wrapper behavior is not fully verified" : "unrecognized tool behavior");
+          unrecognized(payload.name === "exec" ? "exec wrapper behavior is not fully verified" : "unrecognized tool behavior", payload.name);
         }
       } else if (["exec_command_begin", "patch_apply_begin"].includes(type)) {
         violations.add(`unexpected execution: ${type}`);
@@ -85,17 +102,19 @@ export function auditRollout(events, threadId) {
           toolErrors.push(payload.output);
         }
       } else if (!informational.has(type)) {
-        warnings.add("unrecognized rollout payload");
+        unrecognized("unrecognized rollout payload", type);
       }
     } else if (!informational.has(event.type)) {
-      warnings.add("unrecognized rollout event");
+      unrecognized("unrecognized rollout event", event.type);
     }
   }
   const records = [...generations.values()];
   return {
-    artifacts: records.filter((record) => record.status === "completed" && (record.savedPath || record.data)),
+    artifacts: records.filter((record) => !record.invalid && record.status === "completed" && (record.savedPath || record.data)),
     submissions: records.length,
-    pending: records.some((record) => !record.status),
+    countUncertain,
+    evidenceErrors: [...evidenceErrors],
+    pending: records.some((record) => !record.invalid && !record.status),
     failures: records.filter((record) => record.failure).map((record) => record.failure),
     toolErrors,
     check: {

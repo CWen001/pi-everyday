@@ -56,12 +56,10 @@ test("known unauthorized execution does not discard already generated images", (
   assert.equal(result.artifacts.length, 1);
 });
 
-test("missing, cross-session and conflicting artifact identities are rejected", () => {
+test("missing and cross-session identities reject the entire rollout", () => {
   for (const events of [
     [ending],
     [metadata, { ...extension, payload: { ...extension.payload, thread_id: "other" } }],
-    [metadata, { ...ending, payload: { ...ending.payload, call_id: null } }],
-    [metadata, ending, { ...extension, payload: { ...extension.payload, item: { ...extension.payload.item, savedPath: "/other.png" } } }],
   ]) assert.throws(() => auditRollout(events, threadId));
 });
 

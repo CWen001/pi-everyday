@@ -10,17 +10,19 @@ import { transferArtifact } from "./artifact-custody.mjs";
 import { auditRollout } from "./rollout.mjs";
 
 const disabledFeatures = ["multi_agent", "multi_agent_v2", "shell_tool", "unified_exec", "apps", "plugins", "browser_use", "computer_use", "skill_search", "hooks", "tool_suggest", "unbounded_connection_retries"];
-const maxAttempts = 3;
 const requestTimeout = 30 * 60_000;
 const runTimeout = 15 * 60_000;
 
 function parseArgs(argv) {
-  const options = { images: [] };
+  const options = { images: [], maxSubmissions: 3 };
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index], value = argv[index + 1];
-    if (!["--image", "--output"].includes(name)) throw new Error(`unknown option: ${name}`);
+    if (!["--image", "--output", "--max-submissions"].includes(name)) throw new Error(`unknown option: ${name}`);
     if (!value || value.startsWith("--")) throw new Error(`${name} requires a path`);
-    if (name === "--image") options.images.push(resolve(value));
+    if (name === "--max-submissions") {
+      if (!/^[1-3]$/.test(value)) throw new Error("--max-submissions must be 1, 2 or 3");
+      options.maxSubmissions = Number(value);
+    } else if (name === "--image") options.images.push(resolve(value));
     else {
       if (options.output) throw new Error("duplicate option --output");
       options.output = resolve(value);
@@ -138,7 +140,7 @@ async function inspect(run, codexHome) {
     if (evidence.check.status !== "violation") evidence.check.status = "incomplete";
   }
   Object.assign(run, evidence);
-  run.countUncertain = stdout.incomplete || parsed.incomplete;
+  run.countUncertain = evidence.countUncertain || stdout.incomplete || parsed.incomplete;
 }
 
 async function assertMissing(path) {
@@ -217,14 +219,17 @@ async function recoverRuns(report, options, codexHome) {
       catch (error) { report.errors.push(safeMessage(error.message)); continue; }
     }
     await deliver(run, report, options, codexHome);
+    report.errors.push(...(run.evidenceErrors || []));
     if (run.check.status === "violation") report.errors.push(...run.check.violations);
   }
   report.submissions = report.runs.reduce((total, run) => total + (run.submissions || 0), 0);
-  if (report.submissions > maxAttempts) report.errors.push("Codex exceeded the generation budget; no further runs authorized");
+  if (report.submissions > options.maxSubmissions) report.errors.push("Codex exceeded the generation budget; no further runs authorized");
 }
 
 async function main(report) {
   const options = parseArgs(process.argv.slice(2));
+  const maxAttempts = options.maxSubmissions;
+  report.maxSubmissions = maxAttempts;
   let prompt = "";
   process.stdin.setEncoding("utf8");
   for await (const chunk of process.stdin) prompt += chunk;

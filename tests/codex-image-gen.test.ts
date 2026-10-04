@@ -60,6 +60,29 @@ for (const scenario of ["success", "duplicate", "inline", "legitimate-tools", "o
   });
 }
 
+test("an independent damaged completion preserves the trusted image and reports partial failure", async (t) => {
+  const f = await fixture(t, "damaged-completion");
+  const result = await f.run();
+  assert.equal(result.code, 1);
+  assert.equal(result.output.status, "partial");
+  assert.equal(result.output.images.length, 1);
+  assert.equal(result.output.runs[0].check.status, "incomplete");
+  const calls = await f.calls();
+  assert.equal(calls.length, 1);
+  assert.deepEqual(await readFile(result.output.images[0].path), await readFile(calls[0].artifact));
+  assert.match(result.output.errors.join(" "), /call id/);
+});
+
+test("a conflicting call is quarantined while another trusted call is delivered", async (t) => {
+  const f = await fixture(t, "conflicting-completion");
+  const result = await f.run();
+  assert.equal(result.code, 1);
+  assert.equal(result.output.status, "partial");
+  assert.deepEqual(result.output.images.map((image: { callId: string }) => image.callId), ["image-2"]);
+  assert.equal((await f.calls()).length, 1);
+  assert.match(result.output.errors.join(" "), /conflicting artifact/);
+});
+
 test("ordered multiple references and creative text survive paths containing spaces", async (t) => {
   const f = await fixture(t);
   const images = [join(f.root, "first reference.png"), join(f.root, "second reference.png")];
@@ -109,6 +132,18 @@ test("output collision after generation preserves both existing output and sourc
   assert.equal(await realpath(result.output.images[0].path), await realpath(call.artifact));
 });
 
+for (const scenario of ["uncertain-generation", "uncertain-tool", "malformed-event"]) {
+test(`uncertain evidence stops further submissions: ${scenario}`, async (t) => {
+  const f = await fixture(t, scenario);
+  const result = await f.run();
+  assert.equal(result.code, 1);
+  assert.equal((await f.calls()).length, 1);
+  assert.equal(result.output.runs[0].countUncertain, true);
+  assert.equal(result.output.runs[0].check.status, "incomplete");
+  assert.match(result.output.errors.join(" "), /uncertain/);
+});
+}
+
 test("a temporary generation failure retries once and delivers the second result", async (t) => {
   const f = await fixture(t, "retry");
   const result = await f.run();
@@ -131,6 +166,15 @@ for (const [scenario, calls, submissions, code] of [
     assert.equal(result.output.submissions, submissions);
   });
 }
+
+test("an explicit one-submission allowance disables outer regeneration", async (t) => {
+  const f = await fixture(t, "always-fail");
+  const result = await f.run(["--max-submissions", "1"]);
+  assert.equal(result.code, 1);
+  assert.equal((await f.calls()).length, 1);
+  assert.equal(result.output.submissions, 1);
+  assert.equal(result.output.maxSubmissions, 1);
+});
 
 test("a pending task resumes the same thread without a new generation", async (t) => {
   const f = await fixture(t, "pending");
@@ -193,7 +237,7 @@ test("the request deadline stops further attempts", async (t) => {
 
 test("invalid input is rejected before Codex runs", async (t) => {
   const f = await fixture(t);
-  for (const [args, prompt] of [[[], " "], [["--image", join(f.root, "missing.png")], "kite"], [["--output"], "kite"]] as Array<[string[], string]>) {
+  for (const [args, prompt] of [[[], " "], [["--image", join(f.root, "missing.png")], "kite"], [["--output"], "kite"], ...["0", "4", "1x", "-1"].map((value): [string[], string] => [["--max-submissions", value], "kite"])] as Array<[string[], string]>) {
     assert.equal((await f.run(args, prompt)).code, 1);
   }
   const output = join(f.root, "existing.png");

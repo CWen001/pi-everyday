@@ -2,7 +2,6 @@
 
 Small, additive conveniences for [Pi](https://pi.dev) and OMP:
 
-- Show remaining OpenAI Codex subscription usage.
 - Keep old images out of future model requests without changing session history.
 - Receive VS Code file/selection context in Pi, including shared Herdr sessions on macOS and Windows.
 - Render local Path Links in Pi and open local file links as directories in Windows/macOS WezTerm.
@@ -32,9 +31,9 @@ Pi packages execute with the same system access as Pi. Review the source before 
 
 ### OpenAI usage status
 
-When Pi or OMP has an `openai-codex` OAuth login, a compact status shows the remaining primary and secondary subscription windows. It refreshes after turns with a five-minute cooldown and does not replace the host's footer.
+**Quota display is currently unavailable on this development/Git revision.** The current Pi `openai` ChatGPT login has a different token contract; a supported quota-query endpoint has not been established. The legacy `openai-codex` reader has been removed. This revision reads no usage credentials and sends no quota requests, in Pi or OMP. Review usage in [ChatGPT Settings → Usage](https://chatgpt.com/settings/usage); see the [source-backed gate](docs/research/openai-usage-contract.md).
 
-If the internal OpenAI usage endpoint is unavailable or changes, the status stays silent.
+The optional Usage Refresh lifecycle remains non-blocking, with a ten-second whole-operation deadline and five-minute cooldown. Failed or unavailable queries clear this feature's status; stale or previous-session completions cannot publish. It preserves the native footer and other statuses. npm 0.3.2 retains its older behavior until a new release.
 
 #### Compact OMP status layout
 
@@ -112,16 +111,16 @@ Run the skill in Pi:
 
 Provide a prompt, optional ordered reference images within Codex's native limit, and an output such as `./output/image.png`. The skill uses your local Codex subscription and built-in `image_gen`, preserving the creative prompt and original artifacts.
 
-An Image Request permits at most three generation submissions: recover first, retry temporary failures when needed. Waiting and saving do not submit another generation. Every valid result is shown, including late recoveries; the user chooses artistic quality. There are no fallback providers or Images API calls.
+An Image Request defaults to an allowance of three observable image-tool submissions: recover first, retry temporary failures when needed. Pass `--max-submissions 1` to the skill's runner for a single-call allowance with no outer regeneration (`1`, `2`, or `3`; default `3`). Waiting and saving do not submit another generation. Call-ID evidence and prompt instructions bound the wrapper's continuation; Codex owns native HTTP retries, so this is not a guarantee of backend request counts or charges. Every valid result is shown, including late recoveries; the user chooses artistic quality. There are no fallback providers or direct Images API calls from the wrapper.
 
-Image outcomes and execution checks are separate. Unknown logs or opaque exec wrappers are reported as incomplete checks, not proof that an image failed or that tool isolation was enforced. A nonzero exit can still include delivered images; the JSON `images` array is authoritative, while `path` is only its first entry. Original files are kept and existing destinations are never overwritten. The runner decodes images using Photon (also used by Pi), rather than trusting a filename extension.
+Image outcomes and execution checks are separate. Independent damaged records retain other trustworthy images, while conflicting artifact identities are excluded. Unknown generation evidence stops further submissions when the count is uncertain; unrelated new fields can accompany valid delivery. Unknown logs or opaque exec wrappers are reported as incomplete checks, not proof that an image failed or that tool isolation was enforced. A nonzero exit can still include delivered images; the JSON `images` array is authoritative, while `path` is only its first entry. Original files are kept and existing destinations are never overwritten. The runner decodes images using Photon (also used by Pi), rather than trusting a filename extension.
 
 Maintain compatibility with current Codex best practices and update the CLI through its existing installation method when necessary; no forced upgrade on every request. Diagnostics record the actual CLI version, attempts, artifact sources and check status without copying image base64.
 
 ## Privacy and security
 
 - The package includes no telemetry.
-- Usage status uses the active OpenAI OAuth token only for an in-memory request to the internal usage endpoint. It does not persist the token or account identifier.
+- The default usage source is currently unavailable and accesses no credentials or quota endpoints. Restoring it requires a verified current-login query contract.
 - Path Rendering checks whether candidate paths exist and whether they are files or directories. It does not read file contents or send paths to a remote service.
 - Image context pruning changes only the transient outbound model request. Saved session history is not rewritten.
 - Editor Context can include unsaved selected text. Automatic or explicit attachment sends that content and file paths to the current model and may retain it in the conversation history. Disconnect clears the current cache; it does not erase past messages. See the Bridge limitations and migration steps above.
@@ -133,13 +132,13 @@ Default generated images and diagnostics use `.scratch/`, which should remain ex
 
 ## Compatibility and limitations
 
-- Pi 0.84.1 or newer.
+- Maintained against current stable Pi; development baseline 1.0.2. Older Pi compatibility is not maintained.
 - Node.js 22.19.0 or newer.
 - macOS, Windows, and Linux.
 - Path Links require a terminal that supports OSC 8 hyperlinks and `file://` URI handling.
 - Windows/macOS Directory Opening uses the bundled WezTerm module with WezTerm 20240203 or newer and Node.js 22.19.0 or newer.
 - Some terminals capture mouse input and require their hyperlink modifier while clicking. The WezTerm module binds Windows Ctrl+click and macOS Cmd+click in both mouse-reporting states.
-- Usage status depends on an undocumented OpenAI endpoint and can stop working without notice.
+- Current ChatGPT quota display is blocked pending a supported query contract; usage remains hidden.
 - Image generation requires a compatible, authenticated local Codex CLI.
 - Generated images and diagnostics remain after package removal until deleted manually.
 
@@ -201,7 +200,7 @@ For an unreleased local change, transfer `src/path-links/wezterm.lua` and `src/p
 
 ### Usage status is absent
 
-Confirm that Pi or OMP has an active `openai-codex` OAuth login. Endpoint failures intentionally remain silent.
+The current source revision intentionally hides usage while the new ChatGPT quota-query contract remains unverified. Check [ChatGPT Settings → Usage](https://chatgpt.com/settings/usage). Logging into legacy Codex does not enable a fallback.
 
 ### Image generation fails before starting
 
@@ -262,6 +261,10 @@ Releases are published by GitHub Actions from matching `v*` tags through npm tru
 
 ### Unreleased
 
+- Target Pi 1.0.2 for development; make usage refresh non-blocking, bounded and session-safe, clearing stale values on failure.
+- Remove legacy quota lookup; keep current ChatGPT quota display hidden until its query contract is verified.
+- Retain independent trusted image results through damaged evidence, quarantine conflicting identities and stop retries on uncertain generation counts.
+- Add a lower `--max-submissions` allowance for bounded requests and single-call acceptance checks.
 - Integrate Editor Context into Pi with native low-interference status, existing commands/tools and independent per-session attachment.
 - Add macOS/Windows Herdr workspace discovery using Node's bundled SQLite, live workspace validation, bounded input validation and cleanup.
 - Document replacing the separate companion while retaining the existing VS Code Bridge.
