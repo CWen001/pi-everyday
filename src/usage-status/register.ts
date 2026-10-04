@@ -16,7 +16,7 @@ export function registerUsageStatus(
   pi: ExtensionAPI,
   options: UsageRegistrationOptions = {},
 ): void {
-  const now = options.now ?? Date.now;
+  const now = options.now ?? (() => performance.now());
   const sourceFactory = options.sourceFactory ?? createOpenAIUsageSource;
   let active = false;
   let source: UsageSource | undefined;
@@ -36,6 +36,7 @@ export function registerUsageStatus(
     const attemptedAt = now();
     if (!force && attemptedAt - lastAttemptAt < REFRESH_COOLDOWN_MS) return;
     lastAttemptAt = attemptedAt;
+    const deadline = attemptedAt + REQUEST_TIMEOUT_MS;
 
     const controller = new AbortController();
     abortController = controller;
@@ -50,7 +51,7 @@ export function registerUsageStatus(
       try {
         const snapshot = await Promise.race([currentSource.load(controller.signal), aborted]);
         if (abortController === controller) {
-          publish(ctx, !controller.signal.aborted && snapshot ? formatUsageStatus(snapshot) : undefined);
+          publish(ctx, !controller.signal.aborted && now() < deadline && snapshot ? formatUsageStatus(snapshot) : undefined);
         }
       } catch {
         if (abortController === controller) publish(ctx, undefined);

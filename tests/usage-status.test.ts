@@ -94,6 +94,16 @@ test("the whole refresh expires even when its source ignores cancellation", asyn
   h.emit("session_shutdown");
 });
 
+test("elapsed deadline hides status before an overdue timer gets CPU time", async () => {
+  const h = usageHarness({ load: async () => availableUsage });
+  h.emit("session_start"); await flush();
+  assert.equal(h.statuses.at(-1), "5h 75% left");
+  h.advance(300_000); h.emit("turn_end");
+  h.advance(10_001); await flush();
+  assert.equal(h.statuses.at(-1), undefined);
+  h.emit("session_shutdown");
+});
+
 test("expiry hides stale status even when a result already won the promise race", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const h = usageHarness({ load: async () => availableUsage });
@@ -121,10 +131,14 @@ test("session replacement cancels old work without clearing the successor's refr
   h.advance(300_000); h.emit("turn_end"); await flush();
   assert.equal(signals.length, 2, "late cleanup must not release the successor's active slot");
   completions[1](availableUsage); await flush();
+  assert.equal(h.statuses.at(-1), undefined, "the successor also expired after five minutes");
+  h.emit("turn_end"); await flush();
+  assert.equal(signals.length, 3);
+  completions[2](availableUsage); await flush();
   assert.equal(h.statuses.at(-1), "5h 75% left");
   h.emit("session_start", { hasUI: false } as ExtensionContext); await flush();
   h.emit("turn_end", { hasUI: false } as ExtensionContext); await flush();
-  assert.equal(signals.length, 2);
+  assert.equal(signals.length, 3);
   h.emit("session_shutdown", { hasUI: false } as ExtensionContext);
 });
 

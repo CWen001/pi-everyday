@@ -203,23 +203,31 @@ async function deliver(run, report, options, codexHome) {
 }
 
 function retryDecision(runs, deadline) {
-  const run = runs.at(-1);
-  const reason = safeMessage(JSON.stringify([run.failures, run.toolErrors, run.error]));
-  if (runs.some((item) => item.countUncertain || /termination unconfirmed/.test(item.error || ""))) {
-    return { retry: false, reason: "generation count or process termination is uncertain; no further submission" };
+  let delay = 0, notBefore = 0, reason = "";
+  for (const run of runs) {
+    const evidence = JSON.stringify([run.failures, run.toolErrors, run.error]);
+    reason = safeMessage(evidence);
+    if (run.countUncertain || /termination unconfirmed/.test(evidence)) {
+      return { retry: false, reason: "generation count or process termination is uncertain; no further submission" };
+    }
+    if (run.pending) return { retry: false, reason: "an image task remains pending; no further submission" };
+    if (/login|authenticat|unauthoriz|refus|content.?policy|safety|invalid.?request|invalid.?argument|permission.?denied|billing|quota/i.test(evidence)) {
+      return { retry: false, reason };
+    }
+    if (/rate.?limit|usage.?limit|usageLimit|429/i.test(evidence)) {
+      const reset = (run.failures || []).map((failure) => failure?.resets_at ?? failure?.resetsAt).find(Number.isFinite);
+      const wait = reset == null ? NaN : Math.max(1000, reset * 1000 - Date.now());
+      if (!Number.isFinite(wait) || wait > 60_000 || Date.now() + wait >= deadline) return { retry: false, reason };
+      delay = Math.max(delay, wait);
+      notBefore = Math.max(notBefore, reset * 1000);
+    } else {
+      if (!run.submissions || !(run.failures?.length || /timed out|connection|network|temporar|server.error|503|502/i.test(evidence))) {
+        return { retry: false, reason };
+      }
+      delay = Math.max(delay, run.attempt * 1000);
+    }
   }
-  if (runs.some((item) => item.pending)) return { retry: false, reason: "an image task remains pending; no further submission" };
-  if (/login|authenticat|unauthoriz|refus|content.?policy|safety|invalid.?request|invalid.?argument|permission.?denied|billing|quota/i.test(reason)) {
-    return { retry: false, reason };
-  }
-  if (/rate.?limit|usage.?limit|usageLimit|429/i.test(reason)) {
-    const reset = (run.failures || []).map((failure) => failure?.resets_at ?? failure?.resetsAt).find(Number.isFinite);
-    const delay = reset == null ? NaN : Math.max(1000, reset * 1000 - Date.now());
-    return { retry: Number.isFinite(delay) && delay <= 60_000 && Date.now() + delay < deadline,
-      delay, reason };
-  }
-  return { retry: Boolean(run.submissions && (run.failures?.length || /timed out|connection|network|temporar|server.error|503|502/i.test(reason))),
-    delay: run.attempt * 1000, reason };
+  return { retry: true, delay, notBefore, reason };
 }
 
 async function recoverRuns(report, options, codexHome) {
@@ -269,6 +277,9 @@ async function main(report) {
         if (report.images.length || report.errors.length || report.submissions >= maxAttempts) break;
         const decision = retryDecision(report.runs, deadline);
         if (!decision.retry) { report.errors.push(decision.reason); break; }
+        if (decision.notBefore > Date.now()) {
+          report.errors.push("refreshed evidence extends the rate-limit wait; no further submission"); break;
+        }
       }
       const run = { attempt, stdout: "", check: { status: "incomplete", warnings: [], violations: [] } };
       report.runs.push(run);

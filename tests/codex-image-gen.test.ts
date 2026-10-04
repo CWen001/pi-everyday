@@ -148,9 +148,13 @@ test(`uncertain evidence stops further submissions: ${scenario}`, async (t) => {
 for (const [kind, evidence] of Object.entries({
   unknown: { type: "item_completed", item: { type: "Extension", kind: "image_gen.generation_v2", id: "late-call", status: "failed" } },
   pending: { type: "image_generation_begin", call_id: "late-call" },
+  authentication: { type: "error", message: "authentication expired" },
+  rate: { type: "error", message: "rate_limit_exceeded" },
+  "future-rate": { type: "image_generation_end", call_id: "image-1", status: "failed", failure: { type: "usage_limit_exceeded", resets_at: 0 } },
 })) {
 test(`fresh counter-evidence during backoff revokes authorization: ${kind}`, async (t) => {
-  const f = await fixture(t, "retry");
+  const late = ["authentication", "rate", "future-rate"].includes(kind);
+  const f = await fixture(t, late ? "always-fail" : "retry");
   const preload = join(f.root, "late-evidence.mjs");
   await writeFile(preload, `
 import { createRequire, syncBuiltinESMExports } from "node:module";
@@ -159,10 +163,12 @@ import { join } from "node:path";
 const timers = createRequire(import.meta.url)("node:timers/promises"), sleep = timers.setTimeout;
 timers.setTimeout = async (ms, ...args) => {
   const result = await sleep(ms, ...args);
-  if (ms === 1000) {
+  if (ms === ${late ? 2000 : 1000}) {
     const first = JSON.parse(readFileSync(process.env.FAKE_CODEX_CAPTURE, "utf8").trim().split("\\n")[0]);
+    const payload = ${JSON.stringify(evidence)};
+    if (payload.failure?.resets_at === 0) payload.failure.resets_at = Math.floor(Date.now() / 1000) + 30;
     appendFileSync(join(process.env.CODEX_HOME, "sessions", "2026", "rollout-" + first.threadId + ".jsonl"),
-      JSON.stringify({ type: "event_msg", payload: ${JSON.stringify(evidence)} }) + "\\n");
+      JSON.stringify({ type: "event_msg", payload }) + "\\n");
   }
   return result;
 };
@@ -170,8 +176,8 @@ syncBuiltinESMExports();
 `);
   const result = await f.run([], "kite", { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` });
   assert.equal(result.code, 1);
-  assert.equal((await f.calls()).length, 1);
-  assert.equal(result.output.runs[0][kind === "unknown" ? "countUncertain" : "pending"], true);
+  assert.equal((await f.calls()).length, late ? 2 : 1);
+  if (!late) assert.equal(result.output.runs[0][kind === "unknown" ? "countUncertain" : "pending"], true);
 });
 }
 
