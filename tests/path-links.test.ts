@@ -3,10 +3,11 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Markdown, type MarkdownTheme } from "@earendil-works/pi-tui";
 import { registerPathLinks } from "../src/path-links/register.ts";
-import { renderPathLinks } from "../src/path-links/transform.ts";
+import { renderAbsolutePathLinks, renderPathLinks } from "../src/path-links/transform.ts";
 
 const root = join(tmpdir(), `pi-everyday-paths-${process.pid}`);
 const homeRoot = join(homedir(), `.pi-everyday-paths-${process.pid}`);
@@ -24,21 +25,19 @@ test.after(() => {
   rmSync(homeRoot, { recursive: true, force: true });
 });
 
-test("Path Rendering links an inline local file to its containing directory", () => {
+test("Path Rendering links an inline local file to the original file", () => {
   const result = renderPathLinks({ markdown: "File: `output/nested/result.txt`", cwd: root });
-  assert.match(result, /^File: \[`output\/nested\/result\.txt`\]\(file:\/\//);
-  assert.match(result, /\/output\/nested\)$/);
+  assert.equal(result, `File: [\`output/nested/result.txt\`](${pathToFileURL(join(root, "output/nested/result.txt")).href})`);
 });
 
 test("Path Rendering links a standalone local file", () => {
   const result = renderPathLinks({ markdown: "output/nested/result.txt", cwd: root });
-  assert.match(result, /^\[output\/nested\/result\.txt\]\(file:\/\//);
+  assert.equal(result, `[output/nested/result.txt](${pathToFileURL(join(root, "output/nested/result.txt")).href})`);
 });
 
-test("Path Rendering retargets an existing relative Markdown Path Link to its containing directory", () => {
+test("Path Rendering resolves a relative Markdown Path Link to the original file", () => {
   const result = renderPathLinks({ markdown: "[01](output/nested/result.txt)", cwd: root });
-  assert.match(result, /^\[01\]\(file:\/\//);
-  assert.match(result, /\/output\/nested\)$/);
+  assert.equal(result, `[01](${pathToFileURL(join(root, "output/nested/result.txt")).href})`);
 });
 
 test("Path Rendering leaves Markdown image targets unchanged", () => {
@@ -46,16 +45,31 @@ test("Path Rendering leaves Markdown image targets unchanged", () => {
   assert.equal(renderPathLinks({ markdown: image, cwd: root }), image);
 });
 
-test("supports spaces in backticked paths", () => {
-  writeFileSync(join(root, "output", "with space.txt"), "ok");
-  const result = renderPathLinks({ markdown: "`output/with space.txt`", cwd: root });
-  assert.match(result, /^\[`output\/with space\.txt`\]\(file:\/\//);
+test("preserves file identity for Unicode, spaces, literal percent/hash, and extensionless files", () => {
+  const folder = "output/研究 100%20 #1.v1";
+  mkdirSync(join(root, folder));
+  const file = `${folder}/LICENSE`;
+  writeFileSync(join(root, file), "ok");
+  for (const path of [folder, file]) {
+    const href = pathToFileURL(join(root, path)).href;
+    const expected = `[\`${path}\`](${href})`;
+    assert.equal(renderPathLinks({ markdown: `\`${path}\``, cwd: root }), expected);
+    assert.equal(renderPathLinks({ markdown: expected, cwd: root }), expected);
+    assert.equal(renderAbsolutePathLinks(`\`${join(root, path)}\``), `[\`${join(root, path)}\`](${href})`);
+  }
+});
+
+test("preserves explicit file URIs including navigation suffixes", () => {
+  const href = pathToFileURL(join(root, "output/nested/result.txt")).href;
+  for (const suffix of ["", "?line=2#L2"]) {
+    const markdown = `[file](${href}${suffix})`;
+    assert.equal(renderPathLinks({ markdown, cwd: root }), markdown);
+  }
 });
 
 test("Path Rendering links an inline local directory to itself", () => {
   const result = renderPathLinks({ markdown: "Folder: `output/nested`", cwd: root });
-  assert.match(result, /^Folder: \[`output\/nested`\]\(file:\/\//);
-  assert.match(result, /\/output\/nested\)$/);
+  assert.equal(result, `Folder: [\`output/nested\`](${pathToFileURL(join(root, "output/nested")).href})`);
 });
 
 test("supports home-relative and absolute paths", () => {
