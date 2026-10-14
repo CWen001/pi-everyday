@@ -1,5 +1,8 @@
 import childProcess from "node:child_process";
 import { tmpdir } from "node:os";
+import { existsSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, isAbsolute } from "node:path";
 import type { UsageSnapshot, UsageSource, UsageWindow } from "./types.ts";
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -31,14 +34,45 @@ function parseUsage(value: unknown): UsageSnapshot | undefined {
   return primary || secondary ? { rateLimit: { primary, secondary }, additionalRateLimits: [] } : undefined;
 }
 
+function codexLaunch() {
+  const fallback = { command: "codex", env: process.env };
+  if (process.platform !== "win32") return fallback;
+  const target = process.arch === "x64" ? "x86_64-pc-windows-msvc" :
+    process.arch === "arm64" ? "aarch64-pc-windows-msvc" : undefined;
+  for (const entry of (process.env.PATH ?? "").split(";")) {
+    const directory = entry.replace(/^"|"$/g, "");
+    if (!isAbsolute(directory)) continue;
+    const native = join(directory, "codex.exe");
+    if (existsSync(native)) return { command: realpathSync(native), env: process.env };
+    const manifest = join(directory, "node_modules", "@openai", "codex", "package.json");
+    if (!target || !existsSync(join(directory, "codex.cmd")) || !existsSync(manifest)) continue;
+    const packageRoot = dirname(realpathSync(manifest));
+    let vendor = join(packageRoot, "vendor");
+    try {
+      vendor = join(dirname(createRequire(manifest).resolve(`@openai/codex-win32-${process.arch}/package.json`)), "vendor");
+    } catch {
+      // Older Codex npm versions ship the native binary inside the main package.
+    }
+    const executable = join(vendor, target, "bin", "codex.exe");
+    if (!existsSync(executable)) continue;
+    const env = { ...process.env };
+    for (const manager of ["NPM", "BUN", "PNPM", "VITE_PLUS"]) delete env[`CODEX_MANAGED_BY_${manager}`];
+    env.CODEX_MANAGED_BY_NPM = "1";
+    env.CODEX_MANAGED_PACKAGE_ROOT = packageRoot;
+    return { command: realpathSync(executable), env };
+  }
+  return fallback;
+}
+
 export function createOpenAIUsageSource(): UsageSource {
   return {
     async load(signal) {
       signal.throwIfAborted();
       // Codex owns authentication. Only read quota; never start a thread or copy tokens.
+      const launch = codexLaunch();
       return new Promise<UsageSnapshot | undefined>((resolve) => {
-        const child = childProcess.spawn("codex", ["app-server"], {
-          cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"], windowsHide: true,
+        const child = childProcess.spawn(launch.command, ["app-server"], {
+          cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"], windowsHide: true, env: launch.env,
         });
         let done = false, initialized = false, buffer = "", bytes = 0;
         let hardStop: ReturnType<typeof setTimeout> | undefined;
