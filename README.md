@@ -284,8 +284,11 @@ Do not commit credentials, generated images, diagnostics, local paths, or sessio
 
 Releases are published by GitHub Actions from matching `v*` tags through npm trusted publishing. Local npm tokens are not used for releases.
 
-### Unreleased
+### 0.4.1
 
+- Preserve original file URIs in Path Rendering so file links no longer lose their filenames.
+- Use Ctrl-click to open files and held Alt/Option-click to open their folders in the shared Windows/macOS WezTerm module. Keep ordinary Herdr mouse input unchanged.
+- Require the terminal module and resolver to update together. Replace an older file-only URI handler rather than adding a second handler.
 - Restore remaining quota and reset-time display through the local Codex app-server, without labels or failure notifications.
 - Prepare stable VS Code integration during installation with bounded, fingerprint-verified cleanup and JSONC-preserving settings updates.
 - Add local `/vscode doctor` connection diagnostics without changing workspace isolation or sending diagnostics to the model.
