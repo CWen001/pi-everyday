@@ -13,16 +13,22 @@ Editor Context included with a user's message when automatic sharing is enabled 
 _Avoid_: Continuous streaming, selection submission
 
 **Path Link**:
-A display-only link from an existing local path to its containing folder, or from a local directory to itself.
-_Avoid_: File link, clickable path
+A display-only link to the original existing local file or directory URI. The link preserves target identity rather than encoding an opening action.
+_Avoid_: Directory-only link, opening action
 
 **Path Rendering**:
 The conversion of supported assistant-display Markdown into Markdown containing Path Links without changing session history or model context.
 _Avoid_: Path rewriting, message mutation
 
+**Target Opening**:
+An action that opens the original local file or directory. The WezTerm integration binds Ctrl-click on macOS and Windows, and also Cmd-click on macOS.
+_Avoid_: Directory Opening, Path Rendering
+
 **Directory Opening**:
-An action that opens the containing directory of an existing local file, or opens an existing local directory itself, while preserving the original message.
-_Avoid_: File opening, Path Rendering
+An action that opens the containing directory of an existing local file, or opens an existing local directory itself. The WezTerm integration selects this action when Alt/Option is held during activation. It reads current keyboard modifiers before resolving the original URI, not a click-time snapshot. No pending intent survives the handler.
+_Avoid_: Target Opening, Path Rendering
+
+Unmodified mouse bindings remain unchanged. The resolver receives the original file URI and an explicit `target` or `folder` intent. Failed modifier reads or resolution cancel the file action rather than opening a different target.
 
 **Image Request**:
 A user's request for an image through Codex's built-in image generation tool, fulfilled through one or more Image Runs. Its creative instructions and reference inputs remain the user's unless changes are explicitly authorized.
