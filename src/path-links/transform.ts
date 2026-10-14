@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const INLINE_CODE_RE = /`([^`\n]+)`/g;
@@ -67,7 +67,7 @@ function createTargetResolver(cwd?: string): ResolveTarget {
 
     try {
       const stat = statSync(absolutePath);
-      const target = stat.isDirectory() ? absolutePath : stat.isFile() ? dirname(absolutePath) : undefined;
+      const target = stat.isDirectory() || stat.isFile() ? absolutePath : undefined;
       cache.set(candidate, target);
       return target;
     } catch (error) {
