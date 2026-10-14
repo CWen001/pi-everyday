@@ -6,6 +6,14 @@ Checked 2026-10-04 against Pi 1.0.2 and official OpenAI documentation.
 
 The author confirmed the local Codex quota is the desired value. The extension now queries the official [Codex app-server](https://developers.openai.com/codex/app-server/) `account/rateLimits/read` method through the locally installed CLI, without reading or transferring credentials. It displays returned windows and reset times without a source label and silently hides failures. A live read with Codex CLI 0.160.0 on macOS succeeded. This is independent of Pi's active login and does not establish a SIWC quota-query contract.
 
+## Windows CLI launch
+
+On Windows, the reader resolves a native `codex.exe` from PATH. For an npm installation exposed through `codex.cmd`, it resolves the installed `@openai/codex-win32-x64` or `@openai/codex-win32-arm64` package and preserves Codex's npm-managed environment. It also checks the main package's vendored binary layout. Paths follow the installation instead of a hard-coded user directory or version. Other custom batch wrappers are outside this fix.
+
+The reader starts the executable directly with a hidden window and no shell. This retains direct ownership of the subprocess for timeout and shutdown cleanup. Non-Windows launches keep the existing `codex app-server` command. Credentials, RPC requests, and failure-to-hidden behavior stay unchanged.
+
+The Windows npm regression exercises the real reader with a synthetic package tree and an intercepted child process. A local Windows check also returned a live quota through `registerUsageStatus` and confirmed that the owned process exited. These checks do not establish that an already-running Pi terminal has reloaded the extension.
+
 ## 0.4.0 release decision: quota display unavailable
 
 The current `openai` ChatGPT login uses Sign in with ChatGPT token sharing. A supported programmatic query for that subscription's remaining quota has not been established. The released 0.4.0 Usage Source therefore returned unavailable without reading credentials or sending a request. The legacy `openai-codex` / WHAM implementation has been removed at the author's request. This is a blocked feature, not completed support for new-login quota display.
