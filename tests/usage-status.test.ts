@@ -3,6 +3,9 @@ import test from "node:test";
 import childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
 import { createOpenAIUsageSource } from "../src/usage-status/openai-source.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerUsageStatus } from "../src/usage-status/register.ts";
@@ -44,6 +47,9 @@ test("Codex RPC drives the native status and silently handles unavailable result
   const week = { usedPercent: 29, windowDurationMins: 10080, resetsAt: 1_000_000 + 486000 };
   for (const scenario of ["weekly", "both", "invalid", "rpc-error", "exit", "missing-cli", "pipe-error", "oversized", "cancel", "timeout"]) {
     await t.test(scenario, async (t) => {
+      const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+      Object.defineProperty(process, "platform", { value: "linux" });
+      t.after(() => Object.defineProperty(process, "platform", platform));
       t.mock.method(Date, "now", () => 1_000_000_000);
       if (scenario === "timeout") t.mock.timers.enable({ apis: ["setTimeout"] });
       const child = Object.assign(new EventEmitter(), {
@@ -92,6 +98,74 @@ test("Codex RPC drives the native status and silently handles unavailable result
       assert.equal(child.killed, true, "owned process must be stopped after success, failure or cancellation");
       if (scenario === "weekly") assert.deepEqual(methods, ["initialize", "initialized", "account/rateLimits/read"]);
       h.emit("session_shutdown");
+    });
+  }
+});
+
+test("Windows quota reads use native Codex from PATH or npm without a shell", async (t) => {
+  for (const install of ["native", "npm-x64", "npm-arm64", "npm-vendored"]) {
+    await t.test(install, async (t) => {
+      const root = mkdtempSync(join(tmpdir(), "quota npm & spaces "));
+      const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+      const arch = Object.getOwnPropertyDescriptor(process, "arch")!;
+      const previousPath = process.env.PATH;
+      Object.defineProperty(process, "platform", { value: "win32" });
+      Object.defineProperty(process, "arch", { value: install === "npm-arm64" ? "arm64" : "x64" });
+      process.env.PATH = root;
+      t.after(() => {
+        Object.defineProperty(process, "platform", platform);
+        Object.defineProperty(process, "arch", arch);
+        if (previousPath === undefined) delete process.env.PATH;
+        else process.env.PATH = previousPath;
+        rmSync(root, { recursive: true, force: true });
+      });
+      const packageRoot = join(root, "node_modules", "@openai", "codex");
+      let executable = join(root, "codex.exe");
+      if (install !== "native") {
+        mkdirSync(packageRoot, { recursive: true });
+        writeFileSync(join(packageRoot, "package.json"), '{"name":"@openai/codex"}');
+        writeFileSync(join(root, "codex.cmd"), "@echo npm shim");
+        const platformRoot = install === "npm-vendored" ? packageRoot :
+          join(packageRoot, "node_modules", "@openai", `codex-win32-${process.arch}`);
+        mkdirSync(platformRoot, { recursive: true });
+        if (install !== "npm-vendored") writeFileSync(join(platformRoot, "package.json"),
+          JSON.stringify({ name: `@openai/codex-win32-${process.arch}` }));
+        executable = join(platformRoot, "vendor",
+          `${process.arch === "arm64" ? "aarch64" : "x86_64"}-pc-windows-msvc`, "bin", "codex.exe");
+      }
+      mkdirSync(dirname(executable), { recursive: true });
+      writeFileSync(executable, "fixture; spawn is intercepted");
+      const child = Object.assign(new EventEmitter(), {
+        stdin: new PassThrough(), stdout: new PassThrough(), killed: false,
+        kill() { this.killed = true; queueMicrotask(() => child.emit("close", null)); return true; },
+      });
+      const methods: string[] = [];
+      child.stdin.on("data", (chunk) => {
+        const request = JSON.parse(String(chunk));
+        methods.push(request.method);
+        if (request.method === "initialized") return;
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result:
+          request.method === "initialize" ? {} : { rateLimits: {
+            primary: { usedPercent: 28, windowDurationMins: 10080 },
+          } },
+        }) + "\n"));
+      });
+      t.mock.method(childProcess, "spawn", (command: string, args: string[], options: childProcess.SpawnOptions) => {
+        assert.equal(command, realpathSync(executable));
+        assert.deepEqual(args, ["app-server"]);
+        assert.equal(options.windowsHide, true);
+        assert.notEqual(options.shell, true);
+        if (install !== "native") {
+          assert.equal(options.env?.CODEX_MANAGED_BY_NPM, "1");
+          assert.equal(options.env?.CODEX_MANAGED_PACKAGE_ROOT, realpathSync(packageRoot));
+          for (const manager of ["BUN", "PNPM", "VITE_PLUS"]) assert.equal(options.env?.[`CODEX_MANAGED_BY_${manager}`], undefined);
+        }
+        return child;
+      });
+      const snapshot = await createOpenAIUsageSource().load(AbortSignal.timeout(1000));
+      assert.equal(snapshot?.rateLimit?.primary?.remainingPercent, 72);
+      assert.deepEqual(methods, ["initialize", "initialized", "account/rateLimits/read"]);
+      assert.equal(child.killed, true);
     });
   }
 });
