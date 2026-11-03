@@ -14,7 +14,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { registerEmptyTurnRecovery } from "../src/empty-turn-recovery.ts";
 
-type Reply = "read" | "empty" | "done" | "error";
+type Reply = "read" | "empty" | "done" | "error" | { text: string };
+
+const STATUS = `目前不需要你操作。我会在本机分别用 Pi 和 Codex 做实际验收。
+
+独立审查、自动合并和中断恢复正在修复。验证证据已改为保存在项目内，避免再生成带后缀的同级目录。
+
+完整流程目前还未验收通过；macOS 仍需要在 Mac 上实测。`;
 
 async function fixture(replies: Reply[], extra?: (pi: ExtensionAPI) => void, enabled = true) {
   const directory = await mkdtemp(join(tmpdir(), "pi-everyday-empty-"));
@@ -31,7 +37,7 @@ async function fixture(replies: Reply[], extra?: (pi: ExtensionAPI) => void, ena
     }
     const delta = reply === "read"
       ? { role: "assistant", tool_calls: [{ index: 0, id: "fixture-read", type: "function", function: { name: "read", arguments: JSON.stringify({ path: "fixture.txt" }) } }] }
-      : { role: "assistant", content: reply === "done" ? "Continued within the original task." : "" };
+      : { role: "assistant", content: typeof reply === "object" ? reply.text : reply === "done" ? "Continued within the original task." : "" };
     response.writeHead(200, { "content-type": "text/event-stream" });
     response.end(`data: ${JSON.stringify({
       id: "fixture", object: "chat.completion.chunk", created: 1, model: "fixture",
@@ -186,5 +192,31 @@ test("cancellation at the settle boundary suppresses recovery", { timeout: 20000
   try {
     await f.complete();
     assert.equal(f.requests.length, 1);
+  } finally { await f.close(); }
+});
+
+
+test("incident: three completion replies recover only after the final worker and execute a real read", { timeout: 20000 }, async () => {
+  const f = await fixture([{ text: STATUS }, { text: STATUS }, { text: STATUS }, { text: STATUS }, "read", "done"], (pi) => {
+    pi.on("before_agent_start", () => ({
+      message: { customType: "vscode-context", content: "Passive editor selection.", display: false },
+    }));
+  });
+  try {
+    for (const id of ["first", "second", "third"]) {
+      f.manager.appendCustomEntry("pstack-agents", { agent: { id }, status: "running" });
+    }
+    await f.session.prompt("Continue the authorized task after the three workers finish.");
+    await f.complete("first");
+    await f.complete("second");
+    assert.equal(f.requests.length, 3, "running workers suppress recovery");
+    await f.complete("third");
+    assert.equal(f.requests.length, 6, "last completion must cause one bounded retry and a real read");
+    const result = f.manager.getBranch().find((e) => e.type === "message"
+      && e.message.role === "toolResult" && e.message.toolName === "read");
+    assert.ok(result?.type === "message" && result.message.role === "toolResult");
+    assert.equal(result.message.isError, false);
+    assert.deepEqual(result.message.content, [{ type: "text", text: "Successful fixture read." }]);
+    assert.match(f.requests[4], /six-check budget/);
   } finally { await f.close(); }
 });
