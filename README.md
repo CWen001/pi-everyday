@@ -4,7 +4,7 @@ Small, additive conveniences for [Pi](https://pi.dev) and OMP:
 
 - Show remaining subscription quota through your locally authenticated Codex CLI.
 - Keep old images out of future model requests without changing session history.
-- Retry an empty reply once after a pstack completion notification in Pi.
+- Reassess an empty or identical repeated reply once after a pstack completion notification in Pi.
 - Receive VS Code file/selection context in Pi, including shared Herdr sessions on macOS and Windows.
 - Render local Path Links in Pi. In Windows/macOS WezTerm, Ctrl-click opens the target and held Alt/Option-click opens its folder.
 - Generate or edit images through your Codex subscription, with recovery and bounded retries.
@@ -296,6 +296,13 @@ pi -e .
 Do not commit credentials, generated images, diagnostics, local paths, or session logs.
 
 Releases are published by GitHub Actions from matching `v*` tags through npm trusted publishing. Local npm tokens are not used for releases.
+
+### 0.4.4
+
+- Recover identical repeated pstack completion replies once when no intervening tools or known waits explain the stop.
+- Share the existing empty-reply budget and show a warning when recovery is exhausted.
+- Preserve existing approval instructions. Identical valid summaries or human questions can also receive one reassessment; this is not a permission enforcement layer.
+- Verify the original three-worker incident through the real Pi SDK and an actual built-in file read. Ubuntu, macOS, and Windows CI passed.
 
 ### 0.4.3
 
