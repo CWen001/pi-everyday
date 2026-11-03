@@ -1,6 +1,6 @@
 {
   "name": "pi-everyday",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Small, additive conveniences for everyday Pi use.",
   "type": "module",
   "license": "MIT",
@@ -46,7 +46,7 @@
   "scripts": {
     "postinstall": "node src/editor-setup.mjs --install",
     "setup": "node src/editor-setup.mjs",
-    "test": "node --experimental-strip-types --test tests/path-links.test.ts tests/resolve-folder.test.mjs tests/wezterm.test.mjs tests/usage-status.test.ts tests/codex-image-gen.test.ts tests/image-context.test.ts tests/rollout.test.mjs tests/artifact-custody.test.mjs tests/editor-context.test.ts tests/editor-setup.test.mjs",
+    "test": "node --experimental-strip-types --test tests/path-links.test.ts tests/resolve-folder.test.mjs tests/wezterm.test.mjs tests/usage-status.test.ts tests/codex-image-gen.test.ts tests/image-context.test.ts tests/empty-turn-recovery.test.ts tests/rollout.test.mjs tests/artifact-custody.test.mjs tests/editor-context.test.ts tests/editor-setup.test.mjs",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test"
   },
@@ -58,8 +58,8 @@
     "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^1.0.2",
-    "@earendil-works/pi-tui": "^1.0.2",
+    "@earendil-works/pi-coding-agent": "^1.5.0",
+    "@earendil-works/pi-tui": "^1.5.0",
     "@types/node": "^24.10.0",
     "typescript": "^5.9.3"
   },

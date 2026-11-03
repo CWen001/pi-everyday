@@ -4,6 +4,7 @@ Small, additive conveniences for [Pi](https://pi.dev) and OMP:
 
 - Show remaining subscription quota through your locally authenticated Codex CLI.
 - Keep old images out of future model requests without changing session history.
+- Retry an empty reply once after a pstack completion notification in Pi.
 - Receive VS Code file/selection context in Pi, including shared Herdr sessions on macOS and Windows.
 - Render local Path Links in Pi. In Windows/macOS WezTerm, Ctrl-click opens the target and held Alt/Option-click opens its folder.
 - Generate or edit images through your Codex subscription, with recovery and bounded retries.
@@ -83,6 +84,14 @@ Direct connections use `PI_VSCODE_PORT`. Every context must report a live worksp
 SQLite reads use Node's bundled `node:sqlite` in a bounded local child process; no separate SQLite installation is needed. Shared terminal environments do not grant an unrelated project access to the editor context. The ordinary no-editor workflow continues without an editor status. Discovery and reconnect continue while the Pi session is alive.
 
 **Bridge limitations:** the existing Bridge uses unauthenticated loopback sockets. Its VS Code sharing-pause control has known snapshot/invalidation gaps, and its send-selection shortcut can broadcast to connected clients. Pi Everyday preserves that external protocol and makes no stronger privacy guarantee. Use selected text only when comfortable sharing it with the active model. The tested baseline is Bridge 0.0.3; real terminal reattachment and display behavior still require per-machine checks.
+
+### Empty-reply recovery (Pi 1.5+)
+
+After a pstack completion notification, Pi can finish with an empty reply even after successfully using a tool. Pi Everyday asks it to reassess the original task once before settling. The reminder is visible and preserves the existing authorization, approval gates and budgets. If the next final reply is also empty, a visible warning replaces silent waiting; no further retry is scheduled.
+
+The retry budget belongs to that notification and is recorded in the session, so tool calls and extension reloads do not reset it. Normal text replies, ordinary user turns, errors, cancellation, pending Pi messages, known running pstack workers and future `schedule_wakeup` timers are left alone. Cancelling a timer does not re-arm it. The guard reads pstack session records without importing or modifying pstack. It does not schedule tasks or inspect TODO files.
+
+This is a bounded workaround for the observed empty-stop failure, not an autonomous-work guarantee. Other background schedulers are not covered. It cannot fix a nonempty reply that ends a task prematurely. The feature requires Pi 1.5 or newer and is not registered by the OMP entrypoint. Windows and macOS use the same implementation.
 
 ### Image context pruning
 
@@ -283,6 +292,12 @@ pi -e .
 Do not commit credentials, generated images, diagnostics, local paths, or session logs.
 
 Releases are published by GitHub Actions from matching `v*` tags through npm trusted publishing. Local npm tokens are not used for releases.
+
+### 0.4.3
+
+- Add one bounded empty-reply recovery after pstack completion notifications on Pi 1.5+, with visible reminders and cancellation support.
+- Preserve running-worker waits, scheduled wakeups and existing task budgets. Keep recovery receipts in the session.
+- Verify the failure and recovery through real Pi sessions with a local synthetic provider.
 
 ### 0.4.1
 

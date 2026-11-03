@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerEditorContext } from "../src/editor-context.ts";
+import { registerEmptyTurnRecovery } from "../src/empty-turn-recovery.ts";
 import { registerImageContextPruning } from "../src/image-context.ts";
 import { registerPathLinks } from "../src/path-links/register.ts";
 import { registerUsageStatus } from "../src/usage-status/register.ts";
@@ -23,5 +24,6 @@ export default function piEveryday(pi: ExtensionAPI): void {
     // Editor integration is optional; keep the rest of Pi available.
   }
 
+  registerEmptyTurnRecovery(pi);
   registerPathLinks(pi);
 }
