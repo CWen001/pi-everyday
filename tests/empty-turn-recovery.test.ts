@@ -175,10 +175,10 @@ test("running workers and scheduled wakeups remain legitimate waits", { timeout:
   } finally { await f.close(); }
 });
 
-test("normal replies, ordinary user turns and provider errors are not retried", { timeout: 20000 }, async () => {
+test("ordinary user turns and provider errors are not retried", { timeout: 20000 }, async () => {
   const f = await fixture(["done", "empty", "error"]);
   try {
-    await f.complete();
+    await f.session.prompt("An ordinary user turn with a normal reply.");
     assert.equal(f.requests.length, 1);
     await f.session.prompt("An ordinary user turn.");
     assert.equal(f.requests.length, 2);
@@ -227,6 +227,13 @@ function receipts(manager: SessionManager) {
   return manager.getEntries().filter((e) => e.type === "custom").filter((e) => e.customType === "pi-everyday-empty-turn");
 }
 
+function receiptActions(manager: SessionManager) {
+  return receipts(manager).map(({ data }) => {
+    assert.ok(data && typeof data === "object" && "action" in data);
+    return data.action;
+  });
+}
+
 function notices(manager: SessionManager) {
   return manager.getEntries().filter((e) => e.type === "custom_message" && e.customType === "pi-everyday-empty-turn");
 }
@@ -236,113 +243,160 @@ async function reassess(f: Awaited<ReturnType<typeof fixture>>) {
   await f.session.waitForIdle();
 }
 
-test("repeat comparison normalizes line endings and trailing whitespace, not meaning", { timeout: 20000 }, async (t) => {
-  for (const [name, text, matches] of [
-    ["whitespace", " \r\nStatus. \t\r\n\r\n  Detail.\t\r\n", true],
-    ["case", "status.\n\n  Detail.", false],
-    ["punctuation", "Status!\n\n  Detail.", false],
-    ["indentation", "Status.\n\n Detail.", false],
-    ["paragraph", "Status.\n  Detail.", false],
-    ["changed summary", "Work is finished.", false],
-  ] as const) {
-    await t.test(name, async () => {
-      const f = await fixture([{ text: "Status.\n\n  Detail." }, { text }, "done"]);
+test("incident: the final worker's fresh progress reply resumes an actual read", { timeout: 20000 }, async () => {
+  const f = await fixture(["empty", { text: "实施仍在进行，完成后会继续汇报验证结果。" }, "read", "done"]);
+  try {
+    for (const id of ["baseline", "implementation"]) {
+      f.manager.appendCustomEntry("pstack-agents", { agent: { id }, status: "running" });
+    }
+    await f.complete("baseline");
+    assert.equal(f.requests.length, 1, "the other live worker is a legitimate wait");
+    await f.complete("implementation");
+    assert.equal(f.requests.length, 4, "fresh progress-only text must receive one reassessment");
+    const reads = f.manager.getBranch().filter((e) => e.type === "message"
+      && e.message.role === "toolResult" && e.message.toolName === "read");
+    assert.equal(reads.length, 1);
+    const result = reads[0];
+    assert.ok(result.type === "message" && result.message.role === "toolResult");
+    assert.equal(result.message.isError, false);
+    assert.deepEqual(result.message.content, [{ type: "text", text: "Successful fixture read." }]);
+    assert.match(f.requests[3], /Successful fixture read/);
+    const trigger = f.manager.getBranch().reverse().find((e) => e.type === "custom_message"
+      && e.customType === "pstack-agent");
+    assert.ok(trigger);
+    assert.deepEqual(receipts(f.manager).map((e) => e.data), [{ triggerId: trigger.id, action: "retry" }]);
+  } finally { await f.close(); }
+});
+
+test("pre-retry tools cannot mask tool-free reassessment exhaustion", { timeout: 20000 }, async (t) => {
+  for (const tool of ["read", "failed-read"] as const) {
+    await t.test(tool, async () => {
+      const f = await fixture([tool, "empty", { text: "I will report the remaining checks later." }]);
       try {
-        await f.complete("first");
-        await f.complete("second");
-        assert.equal(f.requests.length, matches ? 3 : 2);
-        assert.equal(receipts(f.manager).length, matches ? 1 : 0);
+        await f.complete();
+        assert.equal(f.requests.length, 3);
+        assert.deepEqual(receiptActions(f.manager), ["retry", "stopped"]);
+        assert.equal(notices(f.manager).length, 2);
+        await reassess(f);
+        assert.equal(f.requests.length, 4, "a new boundary must not renew the allowance");
+        assert.equal(notices(f.manager).length, 2);
       } finally { await f.close(); }
     });
   }
 });
 
-test("repeated valid summaries and human gates receive one reassessment, not permission", { timeout: 20000 }, async (t) => {
+test("distinct paraphrases exhaust the same completion without text matching", { timeout: 20000 }, async () => {
+  const f = await fixture([
+    { text: "Implementation is still underway." },
+    { text: "I will report validation results later." },
+    { text: "The remaining checks are in progress." },
+  ]);
+  try {
+    await f.complete();
+    assert.equal(f.requests.length, 2);
+    const trigger = f.manager.getBranch().find((e) => e.type === "custom_message" && e.customType === "pstack-agent");
+    assert.ok(trigger);
+    assert.deepEqual(receipts(f.manager).map((e) => e.data), [
+      { triggerId: trigger.id, action: "retry" }, { triggerId: trigger.id, action: "stopped" },
+    ]);
+    const warning = JSON.stringify(notices(f.manager)[1]);
+    assert.match(warning, /No further retry was scheduled/);
+    assert.match(warning, /does not determine whether the task is complete/);
+    assert.doesNotMatch(warning, /unfinished|failed|repeated reply/);
+    await reassess(f);
+    assert.equal(f.requests.length, 3);
+    assert.equal(notices(f.manager).length, 2);
+  } finally { await f.close(); }
+});
+
+test("valid summaries and human gates receive one reassessment, not permission", { timeout: 20000 }, async (t) => {
   for (const text of ["Finished. All requested checks passed.", "Awaiting your approval before deployment. Shall I proceed?"]) {
     await t.test(text, async () => {
-      const f = await fixture(Array.from({ length: 4 }, () => ({ text })));
+      const f = await fixture(Array.from({ length: 3 }, () => ({ text })));
       try {
-        await f.complete("first");
-        await f.complete("second");
-        assert.equal(f.requests.length, 3);
+        await f.complete();
+        assert.equal(f.requests.length, 2);
         assert.equal(receipts(f.manager).length, 2);
         assert.match(JSON.stringify(notices(f.manager)[1]), /stopped automatic recovery/);
-        assert.match(f.requests[2], /If awaiting a human, restate the gate and stop/);
-        assert.match(f.requests[2], /Do not infer permission from worker completion or this reminder/);
+        assert.match(f.requests[1], /If awaiting a human, restate the gate and stop/);
+        assert.match(f.requests[1], /Do not infer permission from worker completion or this reminder/);
         assert.equal(f.manager.getEntries().filter((e) => e.type === "message" && e.message.role === "toolResult").length, 0);
         await reassess(f);
-        assert.equal(f.requests.length, 4);
-        assert.equal(notices(f.manager).length, 2, "exhaustion is warned only once");
+        assert.equal(f.requests.length, 3);
+        assert.equal(notices(f.manager).length, 2, "exhaustion is reported only once");
       } finally { await f.close(); }
     });
   }
 });
 
-test("empty and repeated stalls share one exact-completion budget", { timeout: 20000 }, async (t) => {
-  const cases: { name: string; replies: Reply[]; warnings: number }[] = [
-    { name: "empty to repeated", replies: [{ text: STATUS }, "empty", { text: STATUS }], warnings: 2 },
-    { name: "repeated to empty", replies: [{ text: STATUS }, { text: STATUS }, "empty"], warnings: 2 },
-    { name: "empty to fresh text", replies: [{ text: STATUS }, "empty", "done"], warnings: 1 },
-    { name: "repeated to fresh text", replies: [{ text: STATUS }, { text: STATUS }, "done"], warnings: 1 },
+test("empty and fresh text stops share one exact-completion budget", { timeout: 20000 }, async (t) => {
+  const cases: { name: string; replies: Reply[] }[] = [
+    { name: "empty to fresh", replies: ["empty", "done"] },
+    { name: "fresh to empty", replies: [{ text: STATUS }, "empty"] },
+    { name: "fresh to fresh", replies: [{ text: STATUS }, "done"] },
   ];
-  for (const { name, replies: output, warnings } of cases) {
+  for (const { name, replies: output } of cases) {
     await t.test(name, async () => {
       const f = await fixture(output);
       try {
-        await f.complete("first");
-        await f.complete("second");
-        assert.equal(f.requests.length, 3);
-        assert.equal(notices(f.manager).length, warnings);
-        const trigger = f.manager.getBranch().reverse().find((e) => e.type === "custom_message" && e.customType === "pstack-agent");
-        assert.ok(trigger);
-        assert.deepEqual(receipts(f.manager).map((e) => e.data), [
-          { triggerId: trigger.id, action: "retry" },
-          ...(warnings === 2 ? [{ triggerId: trigger.id, action: "stopped" }] : []),
-        ]);
+        await f.complete();
+        assert.equal(f.requests.length, 2);
+        assert.deepEqual(receiptActions(f.manager), ["retry", "stopped"]);
+        assert.equal(notices(f.manager).length, 2);
       } finally { await f.close(); }
     });
   }
 });
 
-test("successful and failed tools invalidate repeat evidence on either completion", { timeout: 20000 }, async (t) => {
+test("successful and failed tools suppress nonempty recovery only in their response segment", { timeout: 20000 }, async (t) => {
   for (const tool of ["read", "failed-read"] as const) {
-    for (const position of ["earlier", "current"]) {
-      await t.test(`${tool} on ${position}`, async () => {
-        const f = await fixture(position === "earlier"
-          ? [tool, { text: STATUS }, { text: STATUS }]
-          : [{ text: STATUS }, tool, { text: STATUS }]);
+    for (const segment of ["initial", "reassessment"]) {
+      await t.test(`${tool} in ${segment}`, async () => {
+        const output: Reply[] = segment === "initial" ? [tool, { text: STATUS }] : ["empty", tool, { text: STATUS }];
+        const f = await fixture([...output, { text: STATUS }, "done"]);
         try {
           await f.complete("first");
-          await f.complete("second");
-          assert.equal(f.requests.length, 3);
-          assert.equal(receipts(f.manager).length, 0);
+          assert.equal(f.requests.length, output.length);
+          assert.equal(receipts(f.manager).length, segment === "initial" ? 0 : 1);
           const result = f.manager.getEntries().find((e) => e.type === "message" && e.message.role === "toolResult");
           assert.ok(result?.type === "message" && result.message.role === "toolResult");
           assert.equal(result.message.isError, tool === "failed-read");
+          await f.complete("second");
+          assert.equal(f.requests.length, output.length + 2, "earlier completions cannot supply this response's activity");
+          assert.equal(receipts(f.manager).length, segment === "initial" ? 2 : 3);
         } finally { await f.close(); }
       });
     }
   }
 });
 
-test("repeat evidence cannot cross user, foreign message, invalid completion or projection gaps", { timeout: 20000 }, async (t) => {
-  for (const boundary of ["user", "foreign", "invalid", "omitted reply", "omitted completion", "compaction", "sibling"]) {
+test("completion eligibility cannot cross user, foreign message, invalid completion or projection gaps", { timeout: 20000 }, async (t) => {
+  for (const boundary of ["user", "hidden user", "foreign", "hidden foreign", "invalid", "omitted reply", "omitted completion", "compaction", "sibling", "branch summary"]) {
     await t.test(boundary, async () => {
       const f = await fixture([{ text: STATUS }, { text: STATUS }]);
       try {
         const root = f.manager.appendMessage({ role: "user", content: "Original task.", timestamp: Date.now() });
-        await f.complete("first");
+        f.manager.appendCustomEntry("pstack-agents", { agent: { id: "waiting" }, status: "running" });
+        await f.complete();
         const reply = f.manager.getLeafId();
         const completion = f.manager.getBranch().find((e) => e.type === "custom_message" && e.customType === "pstack-agent");
         assert.ok(reply && completion);
-        if (boundary === "user") f.manager.appendMessage({ role: "user", content: "New task.", timestamp: Date.now() });
-        if (boundary === "foreign") f.manager.appendCustomMessageEntry("other", "Other work.", false);
+        f.manager.appendCustomEntry("pstack-agents", { agent: { id: "waiting" }, status: "completed" });
+        if (boundary === "user" || boundary === "hidden user") {
+          const id = f.manager.appendMessage({ role: "user", content: "New task.", timestamp: Date.now() });
+          if (boundary === "hidden user") f.manager.appendContextEdit(id, null);
+        }
+        if (boundary === "foreign" || boundary === "hidden foreign") {
+          const id = f.manager.appendCustomMessageEntry("other", "Other work.", false);
+          if (boundary === "hidden foreign") f.manager.appendContextEdit(id, null);
+        }
         if (boundary === "invalid") f.manager.appendCustomMessageEntry("pstack-agent", "Invalid completion.", false, { status: "completed" });
         if (boundary === "omitted reply") f.manager.appendContextEdit(reply, null);
         if (boundary === "omitted completion") f.manager.appendContextEdit(completion.id, null);
-        if (boundary === "compaction") f.manager.appendCompaction("Earlier reply was identical.", null, 100);
+        if (boundary === "compaction") f.manager.appendCompaction("Earlier completion.", null, 100);
         if (boundary === "sibling") await f.session.navigateTree(root, { summarize: false });
-        await f.complete("second");
+        if (boundary === "branch summary") f.manager.branchWithSummary(reply, "Other branch.");
+        await reassess(f);
         assert.equal(f.requests.length, 2);
         assert.equal(receipts(f.manager).length, 0);
       } finally { await f.close(); }
@@ -350,25 +404,81 @@ test("repeat evidence cannot cross user, foreign message, invalid completion or 
   }
 });
 
-test("repeat comparison uses edited text rather than raw history", { timeout: 20000 }, async () => {
-  const f = await fixture([{ text: STATUS }, { text: STATUS }]);
+test("an edited completion retains its visible provenance and exact retry budget", { timeout: 20000 }, async () => {
+  let edited = false;
+  const f = await fixture([{ text: STATUS }, "read", "done"], (pi) => {
+    pi.on("turn_end", (event, ctx) => {
+      if (edited) return;
+      edited = true;
+      const trigger = ctx.sessionManager.getBranch().find((e) => e.type === "custom_message" && e.customType === "pstack-agent");
+      assert.ok(trigger);
+      return { entries: [...event.entries, {
+        type: "context_edit", targetId: trigger.id, replacement: { content: "Edited completion context." },
+      }] };
+    });
+  });
   try {
-    await f.complete("first");
-    const reply = f.manager.getLeafId();
-    assert.ok(reply);
-    f.manager.appendContextEdit(reply, { content: [{ type: "text", text: "Changed projected summary." }] });
-    await f.complete("second");
-    assert.equal(f.requests.length, 2);
-    assert.equal(receipts(f.manager).length, 0);
+    await f.complete();
+    assert.equal(f.requests.length, 3);
+    assert.match(f.requests[1], /Edited completion context/);
+    const trigger = f.manager.getBranch().find((e) => e.type === "custom_message" && e.customType === "pstack-agent");
+    assert.ok(trigger);
+    assert.deepEqual(receipts(f.manager).map((e) => e.data), [{ triggerId: trigger.id, action: "retry" }]);
   } finally { await f.close(); }
+});
+
+test("edited and omitted tool evidence never becomes evidence of inactivity", { timeout: 20000 }, async (t) => {
+  for (const edit of ["omit call", "omit result", "omit both", "replace call", "replace result"]) {
+    await t.test(edit, async () => {
+      const f = await fixture(["read", "done"], (pi) => {
+        pi.on("turn_end", (event) => {
+          if (!event.toolResultEntryIds.length) return;
+          const ids = edit.includes("both") ? [event.messageEntryId, ...event.toolResultEntryIds]
+            : edit.includes("call") ? [event.messageEntryId] : event.toolResultEntryIds;
+          return { entries: [...event.entries, ...ids.map((targetId) => ({
+            type: "context_edit" as const, targetId,
+            replacement: edit.startsWith("omit") ? null : { content: "Changed projected text." },
+          }))] };
+        });
+      });
+      try {
+        await f.complete();
+        assert.equal(f.requests.length, 2);
+        assert.equal(receipts(f.manager).length, 0);
+      } finally { await f.close(); }
+    });
+  }
+});
+
+test("edited final text uses the projected reply, while an omitted final reply is ineligible", { timeout: 20000 }, async (t) => {
+  for (const replacement of [null, { content: "" }, { content: "A different visible reply." }]) {
+    await t.test(JSON.stringify(replacement), async () => {
+      let edited = false;
+      const f = await fixture(["read", "done", "read", "done"], (pi) => {
+        pi.on("turn_end", (event) => {
+          if (edited || event.message.role !== "assistant" || event.message.stopReason !== "stop") return;
+          edited = true;
+          return { entries: [...event.entries, { type: "context_edit", targetId: event.messageEntryId, replacement }] };
+        });
+      });
+      try {
+        await f.complete();
+        const retry = replacement?.content === "";
+        assert.equal(f.requests.length, retry ? 4 : 2);
+        assert.equal(receipts(f.manager).length, retry ? 1 : 0);
+      } finally { await f.close(); }
+    });
+  }
 });
 
 test("reload, disk restore, compaction and sibling branches retain legacy retry receipts", { timeout: 20000 }, async (t) => {
   for (const operation of ["reload", "disk restore", "compaction", "sibling"]) {
     await t.test(operation, async () => {
-      const f = await fixture([{ text: STATUS }, { text: STATUS }, { text: STATUS }, { text: STATUS }]);
+      const f = await fixture([{ text: STATUS }, { text: STATUS }, { text: STATUS }]);
       try {
+        f.manager.appendCustomEntry("pstack-agents", { agent: { id: "waiting" }, status: "running" });
         await f.complete();
+        f.manager.appendCustomEntry("pstack-agents", { agent: { id: "waiting" }, status: "completed" });
         const trigger = f.manager.getBranch().find((e) => e.type === "custom_message" && e.customType === "pstack-agent");
         const reply = f.manager.getLeafId();
         assert.ok(trigger && reply);
@@ -395,13 +505,67 @@ test("reload, disk restore, compaction and sibling branches retain legacy retry 
   }
 });
 
+test("legacy terminal and unknown receipts never grant a fresh allowance", { timeout: 20000 }, async (t) => {
+  for (const action of ["stopped", "legacy-unknown"]) {
+    await t.test(action, async () => {
+      const f = await fixture([{ text: STATUS }, "done", "done"]);
+      try {
+        f.manager.appendCustomEntry("pstack-agents", { agent: { id: "waiting" }, status: "running" });
+        await f.complete();
+        f.manager.appendCustomEntry("pstack-agents", { agent: { id: "waiting" }, status: "completed" });
+        const trigger = f.manager.getBranch().find((e) => e.type === "custom_message" && e.customType === "pstack-agent");
+        assert.ok(trigger);
+        f.manager.appendCustomEntry("pi-everyday-empty-turn", { triggerId: trigger.id, action });
+        await f.session.reload();
+        await reassess(f);
+        await reassess(f);
+        assert.equal(f.requests.length, 3);
+        assert.equal(receipts(f.manager).length, action === "stopped" ? 1 : 2);
+        assert.equal(notices(f.manager).length, action === "stopped" ? 0 : 1);
+      } finally { await f.close(); }
+    });
+  }
+});
+
+test("duplicate recovery handlers share the committed budget", { timeout: 20000 }, async () => {
+  const f = await fixture(["empty", "empty"], registerEmptyTurnRecovery);
+  try {
+    await f.complete();
+    assert.equal(f.requests.length, 2);
+    assert.deepEqual(receiptActions(f.manager), ["retry", "stopped"]);
+    assert.equal(notices(f.manager).length, 2);
+  } finally { await f.close(); }
+});
+
+test("an omitted retry reminder cannot establish a reassessment segment", { timeout: 20000 }, async () => {
+  let first = true;
+  const f = await fixture(["read", "empty", "done"], (pi) => {
+    registerEmptyTurnRecovery(pi);
+    pi.on("agent_before_settle", (_event, ctx) => {
+      if (first) { first = false; ctx.abort(); }
+    });
+  }, false);
+  try {
+    await f.complete();
+    assert.equal(f.requests.length, 2);
+    assert.equal(receipts(f.manager).length, 1);
+    const reminder = notices(f.manager)[0];
+    assert.ok(reminder);
+    f.manager.appendContextEdit(reminder.id, null);
+    await reassess(f);
+    assert.equal(f.requests.length, 3);
+    assert.equal(receipts(f.manager).length, 1);
+    assert.equal(notices(f.manager).length, 1);
+  } finally { await f.close(); }
+});
+
 test("earlier settle proposals are preserved and only passive editor drafts allow recovery", { timeout: 20000 }, async (t) => {
   for (const proposal of ["passive", "foreign", "state", "context edit", "compaction", "continuation"]) {
     await t.test(proposal, async () => {
       let boundaries = 0;
-      const f = await fixture([{ text: STATUS }, { text: STATUS }, "done"], (pi) => {
+      const f = await fixture([{ text: STATUS }, "read", "done"], (pi) => {
         pi.on("agent_before_settle", (event, ctx) => {
-          if (++boundaries !== 2) return;
+          if (++boundaries !== 1) return;
           if (proposal === "continuation") return {
             entries: [...event.entries, { type: "custom_message", customType: "foreign", content: "Other continuation.", display: false }], continue: true,
           };
@@ -419,9 +583,8 @@ test("earlier settle proposals are preserved and only passive editor drafts allo
         });
       });
       try {
-        await f.complete("first");
-        await f.complete("second");
-        assert.equal(f.requests.length, proposal === "passive" || proposal === "continuation" ? 3 : 2);
+        await f.complete();
+        assert.equal(f.requests.length, proposal === "passive" || proposal === "continuation" ? 3 : 1);
         assert.equal(receipts(f.manager).length, proposal === "passive" ? 1 : 0);
         assert.ok(f.manager.getEntries().some((e) =>
           (e.type === "custom" && e.customType === "other-state")
@@ -436,26 +599,30 @@ test("queued messages, cancellation and provider errors prevent extra recovery r
   for (const protection of ["queue", "cancel", "error"]) {
     await t.test(protection, async () => {
       let boundaries = 0;
-      const f = await fixture([{ text: STATUS }, protection === "error" ? "error" : { text: STATUS }, "done"], (pi) => {
+      const f = await fixture([protection === "error" ? "error" : { text: STATUS }, "done"], (pi) => {
         pi.on("agent_before_settle", (_event, ctx) => {
-          if (++boundaries !== 2) return;
+          if (++boundaries !== 1) return;
           if (protection === "cancel") ctx.abort();
           if (protection === "queue") pi.sendMessage({ customType: "other", content: "Queued work.", display: false }, { deliverAs: "followUp" });
         });
       });
       try {
-        await f.complete("first");
-        await f.complete("second");
-        assert.equal(f.requests.length, protection === "queue" ? 3 : 2);
+        await f.complete();
+        assert.equal(f.requests.length, protection === "queue" ? 2 : 1);
         // Pi can commit settle drafts after abort, but must not run their continuation.
         assert.equal(receipts(f.manager).length, protection === "cancel" ? 1 : 0);
-        if (protection === "queue") assert.match(f.requests[2], /Queued work/);
+        if (protection === "queue") assert.match(f.requests[1], /Queued work/);
+        if (protection === "cancel") {
+          await reassess(f);
+          assert.equal(f.requests.length, 2, "abort may consume the allowance but never renew it");
+          assert.deepEqual(receiptActions(f.manager), ["retry", "stopped"]);
+        }
       } finally { await f.close(); }
     });
   }
 });
 
-test("known and malformed waits suppress repeated replies", { timeout: 20000 }, async (t) => {
+test("known and malformed waits suppress tool-free replies", { timeout: 20000 }, async (t) => {
   for (const wait of ["running", "future wakeup", "malformed worker", "malformed wakeup"]) {
     await t.test(wait, async () => {
       const f = await fixture([{ text: STATUS }, { text: STATUS }]);
@@ -476,13 +643,14 @@ test("known and malformed waits suppress repeated replies", { timeout: 20000 }, 
   }
 });
 
-test("a first completion does not borrow an ordinary user reply as repeat evidence", { timeout: 20000 }, async () => {
-  const f = await fixture([{ text: STATUS }, { text: STATUS }]);
+test("a first completion needs no earlier completion or matching user reply", { timeout: 20000 }, async () => {
+  const f = await fixture([{ text: STATUS }, { text: STATUS }, "read", "done"]);
   try {
     await f.session.prompt("Original task.");
-    await f.complete();
-    assert.equal(f.requests.length, 2);
     assert.equal(receipts(f.manager).length, 0);
+    await f.complete();
+    assert.equal(f.requests.length, 4);
+    assert.equal(receipts(f.manager).length, 1);
   } finally { await f.close(); }
 });
 
@@ -491,7 +659,7 @@ test("an empty reply after a failed tool still receives one reassessment", { tim
   try {
     await f.complete();
     assert.equal(f.requests.length, 3);
-    assert.equal(receipts(f.manager).length, 1);
+    assert.deepEqual(receiptActions(f.manager), ["retry", "stopped"]);
     const result = f.manager.getEntries().find((e) => e.type === "message" && e.message.role === "toolResult");
     assert.ok(result?.type === "message" && result.message.role === "toolResult" && result.message.isError);
   } finally { await f.close(); }

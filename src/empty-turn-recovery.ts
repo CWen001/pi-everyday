@@ -40,27 +40,30 @@ function isTransparent(customType: string): boolean {
   return customType === RECOVERY || customType === "vscode-context";
 }
 
-function hasRepeatedReply(entries: ProjectedSessionEntry[]): boolean {
-  const replies: string[] = [];
+function completionResponse(entries: ProjectedSessionEntry[]) {
+  let tools = false;
+  let beforeReminder = false;
   for (let index = entries.length - 1; index >= 0; index--) {
     const { sourceEntry: entry, messages } = entries[index];
     if (entry.type === "custom_message") {
-      if (isTransparent(entry.customType)) continue;
-      if (!isCompletion(entry) || messages.length === 0) return false;
-      if (replies.length === 2) return replies[0] === replies[1];
+      if (entry.customType === "vscode-context") continue;
+      if (messages.length === 0) return;
+      if (entry.customType !== RECOVERY) return isCompletion(entry) ? { triggerId: entry.id, tools } : undefined;
+      beforeReminder = true;
     } else if (entry.type === "message") {
       if (entry.message.role === "system") continue;
+      // Omitted or edited tools still veto inactivity, but only in this response segment.
+      const activity = [entry.message, ...messages].some((message) => message.role === "toolResult"
+        || (message.role === "assistant" && message.content.some((part) => part.type === "toolCall")));
+      if (activity) {
+        if (!beforeReminder) tools = true;
+        continue;
+      }
       const message = messages[0];
-      if (message?.role !== "assistant" || message.stopReason !== "stop"
-        || entry.message.role !== "assistant"
-        || entry.message.content.some((part) => part.type === "toolCall")
-        || !message.content.every((part) => part.type === "text" || part.type === "thinking")) return false;
-      const text = message.content.filter((part) => part.type === "text").map((part) => part.text).join("")
-        .replace(/\r\n/g, "\n").replace(/[\t ]+$/gm, "").trim();
-      if (text && replies.length < 2) replies.push(text);
-    } else if (entry.type === "compaction" || entry.type === "branch_summary") return false;
+      if (messages.length !== 1 || entry.message.role !== "assistant"
+        || message?.role !== "assistant" || message.stopReason !== "stop") return;
+    } else if (entry.type === "compaction" || entry.type === "branch_summary") return;
   }
-  return false;
 }
 
 export function registerEmptyTurnRecovery(pi: ExtensionAPI): void {
@@ -74,30 +77,26 @@ export function registerEmptyTurnRecovery(pi: ExtensionAPI): void {
     if (last?.role !== "assistant" || last.stopReason !== "stop") return;
     const empty = last.content.every((part) => part.type === "thinking"
       || (part.type === "text" && part.text.trim() === ""));
-    if (!empty && !hasRepeatedReply(event.context.contextEntries)) return;
-
-    const boundary = [...event.context.contextEntries].reverse().find(({ sourceEntry: entry }) =>
-      (entry.type === "message" && entry.message.role === "user")
-      || (entry.type === "custom_message" && !isTransparent(entry.customType)));
-    const trigger = boundary?.sourceEntry;
-    if (!trigger || !isCompletion(trigger) || !boundary?.messages.length) return;
+    const response = completionResponse(event.context.contextEntries);
+    if (!response || (!empty && response.tools)) return;
 
     // Processes and recovery receipts can survive a conversation branch change.
     const entries = ctx.sessionManager.getEntries();
     if (hasKnownWait(entries)) return;
     const receipts = entries.filter((entry) => entry.type === "custom" && entry.customType === RECOVERY
-      && isRecord(entry.data) && entry.data.triggerId === trigger.id);
-    if (receipts.length >= 2) return;
+      && isRecord(entry.data) && entry.data.triggerId === response.triggerId);
+    if (receipts.length >= 2 || receipts.some((entry) =>
+      entry.type === "custom" && isRecord(entry.data) && entry.data.action === "stopped")) return;
     const retry = receipts.length === 0;
     return {
       entries: [
         ...event.entries,
-        { type: "custom", customType: RECOVERY, data: { triggerId: trigger.id, action: retry ? "retry" : "stopped" } },
+        { type: "custom", customType: RECOVERY, data: { triggerId: response.triggerId, action: retry ? "retry" : "stopped" } },
         {
           type: "custom_message", customType: RECOVERY, display: true,
           content: retry
-            ? `Pi Everyday detected ${empty ? "an empty" : "a repeated"} reply after an agent completion and is checking once more. Reassess the original task within its existing authorization. If finished, blocked or waiting, say so. Existing human approvals and questions remain waiting. If awaiting a human, restate the gate and stop. Do not infer permission from worker completion or this reminder. Do not reset budgets, repeat a dispatched task, bypass approvals or retry an operation with an unknown outcome.`
-            : "Pi Everyday stopped automatic recovery after another empty or repeated reply. No further retry was scheduled; the task may still be unfinished.",
+            ? `Pi Everyday detected ${empty ? "an empty" : "a tool-free"} reply after an agent completion and is checking once more. Reassess the original task within its existing authorization. If finished, blocked or waiting, say so. Existing human approvals and questions remain waiting. If awaiting a human, restate the gate and stop. Do not infer permission from worker completion or this reminder. Do not reset budgets, repeat a dispatched task, bypass approvals or retry an operation with an unknown outcome.`
+            : "Pi Everyday stopped automatic recovery for this completion after one reassessment allowance. No further retry was scheduled. This does not determine whether the task is complete.",
         },
       ],
       ...(retry ? { continue: true } : {}),
