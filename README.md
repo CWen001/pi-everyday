@@ -189,7 +189,7 @@ Once connected, select text and send your question. Selecting text alone sends n
 
 ### Path Links render but do not open
 
-Confirm that the terminal enables OSC 8 hyperlinks and routes `file://` URIs to the operating system. Try the terminal's normal hyperlink modifier while clicking.
+Confirm that the terminal enables OSC 8 hyperlinks and routes `file://` URIs to the operating system. Try the terminal's normal hyperlink modifier while clicking. Inside Herdr, check [mouse capture](#herdr-mouse-capture) before changing WezTerm bindings. Reloading Pi does not change Herdr's link handling.
 
 #### WezTerm file and folder opening on Windows and macOS
 
@@ -223,7 +223,7 @@ apply_path_opening(config, {
 return config
 ```
 
-Call `apply_path_opening` once, after your existing `config.mouse_bindings` assignments and before `return config`. Reuse your existing `config`; do not replace it with a second table or overwrite unrelated settings. The module replaces single-left-button Down/Up bindings for `CTRL` and `ALT`, plus `SUPER` and its `CMD`/`WIN` aliases on macOS. It installs Down=`Nop` and Up=`OpenLinkAtMouseCursor` for both `mouse_reporting=false` and `mouse_reporting=true`. Unmodified bindings and other chords, buttons, streaks, and drag bindings remain intact. The reserved modified clicks reach WezTerm even when Herdr or another terminal application captures mouse input.
+Call `apply_path_opening` once, after your existing `config.mouse_bindings` assignments and before `return config`. Reuse your existing `config`; do not replace it with a second table or overwrite unrelated settings. The module replaces single-left-button Down/Up bindings for `CTRL` and `ALT`, plus `SUPER` and its `CMD`/`WIN` aliases on macOS. It installs Down=`Nop` and Up=`OpenLinkAtMouseCursor` for both `mouse_reporting=false` and `mouse_reporting=true`. Unmodified bindings and other chords, buttons, streaks, and drag bindings remain intact. These bindings let WezTerm handle modified clicks during mouse reporting, but opening a link still requires WezTerm to receive its target. Herdr mouse capture can prevent that.
 
 Replace the previous `file:` branch or file-only custom `open-uri` handler with this module. Do not layer it behind the old directory-only policy or a handler that calls `open_with(url.file_path)`. An earlier `return false` stops later handlers, and a handler that opens without stopping can open twice. Preserve custom handlers for other schemes, but make them ignore `file:` URIs. The module lets non-file schemes fall through unchanged. Update the module and resolver together because the resolver now requires an intent and returns `path` instead of `folder`.
 
@@ -234,9 +234,22 @@ Replace the previous `file:` branch or file-only custom `open-uri` handler with 
 
 Reload your WezTerm configuration, then Ctrl+click an existing file link on either platform. It opens the file through the operating system's file association. Hold Alt/Option while clicking the same link and keep it held until activation completes. It opens the parent directory. A directory link opens itself in either mode, and a web link follows your existing handler/browser behavior. Verify plain selection, pane focus, and application controls in your Herdr session. If an action fails, inspect WezTerm's error log and correct the modifier API, inaccessible resource, helper path, or Node executable.
 
-Package updates ship the module and resolver; they do not edit user-owned WezTerm configuration. Integrate this setup separately on each computer and reload the configuration after updates. Keep standard `file:` links rather than adding a Herdr link-handler plugin, a sentinel HTTPS domain, or edits to installed host/terminal files.
+Package updates ship the module and resolver; they do not edit user-owned WezTerm configuration. Integrate this setup separately on each computer and reload the configuration after updates. Keep standard `file:` links. For Herdr, choose one of the routes below rather than rewriting links to a sentinel HTTPS domain or editing installed host files.
 
 For an unreleased local change, use the updated package checkout on each computer so Path Rendering emits original file URIs. Copying only the terminal helpers cannot recover a file from an old directory-only link. Keep `src/path-links/wezterm.lua` and `src/path-links/resolve-folder.mjs` from the same revision. They can also run from a separate user-owned directory. Load `wezterm.lua` there and point `options.resolver` at the adjacent `resolve-folder.mjs`. The resolver uses Node core modules only. A registry reinstall uses the published package, not unreleased source changes.
+
+#### Herdr mouse capture
+
+On Windows, Herdr `0.9.4-preview` at revision `fbd2ae23927f` does not forward explicit OSC 8 links to WezTerm when `ui.mouse_capture = true`. Herdr handles clicks itself. Its built-in opener accepts HTTP and HTTPS links. Local `file:` links require a native link handler. See Herdr's versioned [quick start](https://raw.githubusercontent.com/herdrdev/herdr/fbd2ae23927f/docs/next/website/src/content/docs/quick-start.mdx) and [plugin documentation](https://raw.githubusercontent.com/herdrdev/herdr/fbd2ae23927f/docs/next/website/src/content/docs/plugins.mdx).
+
+Choose the route that matches the mouse behavior you need:
+
+- To let WezTerm open links, set `mouse_capture = false` under `[ui]` in your Herdr user configuration. Run `herdr config check`, then `herdr server reload-config`. This also disables Herdr tab clicks and split-border dragging.
+- To retain Herdr mouse controls, keep capture enabled and configure a native `file:` link handler using Herdr's plugin documentation. Let Ctrl-left-click reach Herdr. If using the WezTerm module above, remove its Ctrl single-left-button Down and Up bindings with `mouse_reporting = true` after calling `apply_path_opening`. Preserve bindings for `mouse_reporting = false` and all unrelated mouse controls.
+
+Pi Everyday does not install a Herdr handler or change user configuration. A native handler owns its opening behavior. A directory-only handler performs Directory Opening, not Target Opening, and does not inherit the WezTerm module's modifier rules.
+
+Verify an actual file-link click after choosing a route. A resolver test or a direct handler invocation does not establish the mouse-click route. Check for a new handler log when diagnosing native activation. These Herdr details were checked on Windows at the revision above. Other versions and macOS require separate verification.
 
 ### Usage status is absent
 
