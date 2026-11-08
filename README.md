@@ -109,23 +109,27 @@ Session history, text, tool calls, and saved JSONL remain unchanged. An old imag
 
 In Pi, Path Rendering turns supported existing local paths into terminal links:
 
-- A file links to the original file URI, not its containing directory.
-- A directory links to itself. Explicit `file:` Markdown links keep their original URI.
+- A file keeps its original label and file URI, followed by a separate `folder` link to its containing directory.
+- A directory links only to itself. Explicit `file:` Markdown links keep their original URI, including navigation suffixes, and receive the same folder companion for existing files.
 - Inline-code paths, standalone path lines, and existing non-image Markdown links are supported.
 - Relative, `~/`, and absolute paths work in normal assistant output.
 - Custom Markdown views receive absolute Path Links only because their working directory is unknown.
 
 For example, Pi can render generic paths such as `./output/result.txt`, `~/project`, or `/path/to/project` as actions when they exist. Missing paths, URLs, Markdown images, and every fenced block remain unchanged.
 
+Bare Markdown targets support balanced parentheses without nesting, including `report (1).txt` in encoded file URIs. Explicit angle-bracket targets such as `[report](<file:///path/report%20(1).txt>)` also support nested or unmatched parentheses. Standalone path lines still require paths without whitespace.
+
 Path Rendering affects display only. It does not alter session history or model context.
 
 OMP uses its native existing local Markdown links. This package does not add a plain-text path transformer to OMP.
 
-Target Opening and Directory Opening are separate terminal actions. With the shared WezTerm module, Ctrl-click opens the original file or directory on Windows and macOS. Cmd-click also works on macOS. Hold Alt on Windows or Option on macOS while clicking to open a file's containing directory. A directory opens itself in either mode. These actions apply to all `file:` links in that WezTerm configuration, including links emitted by OMP, Pi, and other programs. Web links keep their existing URI handlers.
+Activate the original file link to open the file, or its `folder` companion to open the containing directory. Both are standard `file:` URIs and use the same activation modifier. Repeated ordinary and custom Markdown rendering does not duplicate companions. Inside captured Herdr sessions, the [bundled native plugin](#herdr-mouse-capture) uses Ctrl-click on Windows and macOS without sampling other modifiers.
 
-Enable these actions with the [WezTerm setup](#wezterm-file-and-folder-opening-on-windows-and-macos) below. Plain clicks remain available to Herdr, selection, pane focus, and terminal applications. The module does not bind unmodified clicks to opening links. Ctrl, Alt, and macOS Cmd single-left clicks are reserved for link activation in both mouse-reporting states, so those modified clicks are no longer application input.
+For links handled directly by WezTerm, the existing module also supports held Alt/Option-click on the original file link for Directory Opening. Ctrl-click performs Target Opening on both platforms, and Cmd-click also works on macOS. A directory opens itself in either mode. These rules apply to all `file:` links handled by that module. Web links retain their existing handlers.
 
-Keep Alt/Option held until activation completes. The handler reads current keyboard modifiers before resolving the URI, not an immutable snapshot of the click. Releasing or changing modifiers before that read can select a different action. There is no pending intent flag carried into later clicks.
+Enable direct-terminal actions with the [WezTerm setup](#wezterm-file-and-folder-opening-on-windows-and-macos) below. Plain clicks remain available to Herdr, selection, pane focus, and terminal applications. The module does not bind unmodified clicks to opening links. Ctrl, Alt, and macOS Cmd single-left clicks are reserved for link activation in both mouse-reporting states, so those modified clicks are no longer application input.
+
+For the direct WezTerm route, keep Alt/Option held until activation completes. Its handler reads current keyboard modifiers before resolving the URI, not an immutable snapshot of the click. Releasing or changing modifiers before that read can select a different action. There is no pending intent flag carried into later clicks.
 
 Paths must be directly accessible on the current computer, including locally synced OneDrive resources. The module performs no SSH remote resolution, WSL conversion, or Windows/macOS path mapping. Modifier-query, resolver, and synchronous Lua errors are logged and cancel the default file action. They never fall back to another target. WezTerm's `open_with` does not report OS launch results. A missing file association or later OS failure may require checking the operating system rather than the WezTerm log.
 
@@ -164,7 +168,8 @@ Default generated images and diagnostics use `.scratch/`, which should remain ex
 - Node.js 22.19.0 or newer.
 - macOS, Windows, and Linux.
 - Path Links require a terminal that supports OSC 8 hyperlinks and `file://` URI handling.
-- Windows/macOS Target Opening and Directory Opening use the bundled WezTerm module, WezTerm 20240203 or newer with `window:keyboard_modifiers()`, and Node.js 22.19.0 or newer.
+- Captured Herdr sessions use the optional bundled plugin on Windows and macOS. It requires Herdr 0.9.4 or newer with native link handlers and Node.js 22.19.0 or newer on Herdr's PATH. Linking is manual; package installation does not register the plugin.
+- Direct WezTerm Target Opening and Directory Opening use the bundled WezTerm module, WezTerm 20240203 or newer with `window:keyboard_modifiers()`, and Node.js 22.19.0 or newer.
 - The WezTerm module binds Ctrl+click and Alt/Option+click on both platforms, plus Cmd+click on macOS, in both mouse-reporting states. Alt/Option must remain held during activation. Plain clicks are unchanged.
 - Quota display requires an authenticated `codex` executable on Pi's PATH. Verified with Codex CLI 0.160.0 on macOS; other platforms are best effort (Windows `.cmd`-only launchers are not supported by this reader).
 - Image generation requires a compatible, authenticated local Codex CLI.
@@ -245,11 +250,24 @@ On Windows, Herdr `0.9.4-preview` at revision `fbd2ae23927f` does not forward ex
 Choose the route that matches the mouse behavior you need:
 
 - To let WezTerm open links, set `mouse_capture = false` under `[ui]` in your Herdr user configuration. Run `herdr config check`, then `herdr server reload-config`. This also disables Herdr tab clicks and split-border dragging.
-- To retain Herdr mouse controls, keep capture enabled and configure a native `file:` link handler using Herdr's plugin documentation. Let Ctrl-left-click reach Herdr. If using the WezTerm module above, remove its Ctrl single-left-button Down and Up bindings with `mouse_reporting = true` after calling `apply_path_opening`. Preserve bindings for `mouse_reporting = false` and all unrelated mouse controls.
+- To retain Herdr mouse controls, keep capture enabled and link the bundled native `file:` handler below. Let Ctrl-left-click reach Herdr. If using the WezTerm module above, remove its Ctrl single-left-button Down and Up bindings with `mouse_reporting = true` after calling `apply_path_opening`. Preserve bindings for `mouse_reporting = false` and all unrelated mouse controls.
 
-Pi Everyday does not install a Herdr handler or change user configuration. A native handler owns its opening behavior. A directory-only handler performs Directory Opening, not Target Opening, and does not inherit the WezTerm module's modifier rules.
+The package ships `src/path-links/herdr/herdr-plugin.toml` and `open-target.mjs`. It does not register the plugin or change your configuration. Use the active package directory from the table above, then link its plugin directory:
 
-Verify an actual file-link click after choosing a route. A resolver test or a direct handler invocation does not establish the mouse-click route. Check for a new handler log when diagnosing native activation. These Herdr details were checked on Windows at the revision above. Other versions and macOS require separate verification.
+```text
+herdr plugin link "/absolute/path/to/pi-everyday/src/path-links/herdr"
+herdr plugin log list --plugin pi-everyday.local-links
+```
+
+Before linking, disable or unlink any competing directory-only `file:` handler. Preserve its files and registration details if you need to restore it. Do not leave multiple handlers responsible for the same links.
+
+Herdr runs the manifest's Node command from the plugin directory and supplies `HERDR_PLUGIN_CLICKED_URL`. The entry also accepts exactly one URI argument for direct invocation, without a `target` or `folder` option. It reuses `../resolve-folder.mjs` with target intent. Keep that resolver in the plugin's parent directory when moving or updating the source.
+
+Ctrl-click the original file link to open that file through its native association. Ctrl-click `folder` to open the containing directory. The plugin never reads keyboard modifiers or chooses a parent directory. It accepts local `file:` URIs, including `localhost`, and rejects remote authorities, credentials, malformed escapes, controls, encoded path separators, and Windows-incompatible paths. The shared resolver retains its broader UNC and target/folder contract for other consumers.
+
+Windows launches `%SystemRoot%\explorer.exe` with one native path argument and `windowsHide: false`. macOS launches `/usr/bin/open`. Both launches are shell-free. The command reports `{ "path": "...", "accepted": true }` after process creation, not after a window becomes visible. Launch errors exit nonzero; a later association or OS failure can occur after acceptance.
+
+Verify actual clicks on both entries after choosing a route. A resolver test, mocked launch, or direct handler invocation does not establish the mouse-click route or visible OS opening. Inspect the plugin log for native activation. The capture behavior above was observed on Windows at the cited Herdr revision. Real file associations and visible opening with this bundled plugin still require Windows and macOS verification.
 
 ### Usage status is absent
 

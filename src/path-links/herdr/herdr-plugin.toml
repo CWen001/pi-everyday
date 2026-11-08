@@ -1,0 +1,17 @@
+id = "pi-everyday.local-links"
+name = "Pi Everyday local links"
+version = "0.1.0"
+min_herdr_version = "0.9.4"
+description = "Open local file and folder links with native associations"
+platforms = ["macos", "windows"]
+
+[[actions]]
+id = "open-target"
+title = "Open local target"
+command = ["node", "open-target.mjs"]
+
+[[link_handlers]]
+id = "file"
+title = "Open local file or folder"
+pattern = "(?i)^file:"
+action = "open-target"

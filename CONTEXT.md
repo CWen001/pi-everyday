@@ -16,19 +16,23 @@ _Avoid_: Continuous streaming, selection submission
 A display-only link to the original existing local file or directory URI. The link preserves target identity rather than encoding an opening action.
 _Avoid_: Directory-only link, opening action
 
+**Folder Companion**:
+A separate `folder` Path Link immediately after a regular file's Path Link. Its target is the containing directory URI. Directory links have no companion.
+_Avoid_: Modifier intent, replacement file target
+
 **Path Rendering**:
-The conversion of supported assistant-display Markdown into Markdown containing Path Links without changing session history or model context.
+The conversion of supported assistant-display Markdown into Markdown containing Path Links and Folder Companions without changing session history or model context. Original file-link labels and URI bytes remain intact. Repeated rendering does not duplicate companions.
 _Avoid_: Path rewriting, message mutation
 
 **Target Opening**:
-An action that opens the original local file or directory. The WezTerm integration binds Ctrl-click on macOS and Windows, and also Cmd-click on macOS.
+An action that opens the local file or directory identified by the activated URI. The bundled native Herdr plugin uses Ctrl-click on macOS and Windows. Activating a Folder Companion opens its directory through the same action. The direct WezTerm integration also supports Cmd-click on macOS.
 _Avoid_: Directory Opening, Path Rendering
 
 **Directory Opening**:
-An action that opens the containing directory of an existing local file, or opens an existing local directory itself. The WezTerm integration selects this action when Alt/Option is held during activation. It reads current keyboard modifiers before resolving the original URI, not a click-time snapshot. No pending intent survives the handler.
+An action that resolves an existing file to its containing directory, or opens an existing local directory itself. The direct WezTerm integration selects this action when Alt/Option is held during activation. It reads current keyboard modifiers before resolving the original URI, not a click-time snapshot. No pending intent survives the handler.
 _Avoid_: Target Opening, Path Rendering
 
-Unmodified mouse bindings remain unchanged. The resolver receives the original file URI and an explicit `target` or `folder` intent. Failed modifier reads or resolution cancel the file action rather than opening a different target.
+Unmodified mouse bindings remain unchanged. The shared resolver retains its `target` and `folder` intents and UNC support. The native Herdr adapter accepts only local URIs and always requests `target`; the clicked URI selects the file or folder without modifier sampling. Direct WezTerm handling retains both intents. Failed validation, modifier reads, or resolution cancel the action rather than opening a different target. Native process acceptance does not establish visible OS opening.
 
 **Image Request**:
 A user's request for an image through Codex's built-in image generation tool, fulfilled through one or more Image Runs. Its creative instructions and reference inputs remain the user's unless changes are explicitly authorized.

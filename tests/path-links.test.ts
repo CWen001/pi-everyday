@@ -19,6 +19,7 @@ mkdirSync(join(root, "output", "nested"), { recursive: true });
 mkdirSync(homeRoot, { recursive: true });
 writeFileSync(join(root, "output", "nested", "result.txt"), "ok");
 writeFileSync(join(homeRoot, "result.txt"), "ok");
+const folderLink = ` [folder](<${pathToFileURL(join(root, "output/nested")).href}>)`;
 
 test.after(() => {
   rmSync(root, { recursive: true, force: true });
@@ -27,17 +28,17 @@ test.after(() => {
 
 test("Path Rendering links an inline local file to the original file", () => {
   const result = renderPathLinks({ markdown: "File: `output/nested/result.txt`", cwd: root });
-  assert.equal(result, `File: [\`output/nested/result.txt\`](${pathToFileURL(join(root, "output/nested/result.txt")).href})`);
+  assert.equal(result, `File: [\`output/nested/result.txt\`](${pathToFileURL(join(root, "output/nested/result.txt")).href})${folderLink}`);
 });
 
 test("Path Rendering links a standalone local file", () => {
   const result = renderPathLinks({ markdown: "output/nested/result.txt", cwd: root });
-  assert.equal(result, `[output/nested/result.txt](${pathToFileURL(join(root, "output/nested/result.txt")).href})`);
+  assert.equal(result, `[output/nested/result.txt](${pathToFileURL(join(root, "output/nested/result.txt")).href})${folderLink}`);
 });
 
 test("Path Rendering resolves a relative Markdown Path Link to the original file", () => {
   const result = renderPathLinks({ markdown: "[01](output/nested/result.txt)", cwd: root });
-  assert.equal(result, `[01](${pathToFileURL(join(root, "output/nested/result.txt")).href})`);
+  assert.equal(result, `[01](${pathToFileURL(join(root, "output/nested/result.txt")).href})${folderLink}`);
 });
 
 test("Path Rendering leaves Markdown image targets unchanged", () => {
@@ -52,18 +53,96 @@ test("preserves file identity for Unicode, spaces, literal percent/hash, and ext
   writeFileSync(join(root, file), "ok");
   for (const path of [folder, file]) {
     const href = pathToFileURL(join(root, path)).href;
-    const expected = `[\`${path}\`](${href})`;
+    const companion = path === file ? ` [folder](<${pathToFileURL(join(root, folder)).href}>)` : "";
+    const expected = `[\`${path}\`](${href})${companion}`;
     assert.equal(renderPathLinks({ markdown: `\`${path}\``, cwd: root }), expected);
     assert.equal(renderPathLinks({ markdown: expected, cwd: root }), expected);
-    assert.equal(renderAbsolutePathLinks(`\`${join(root, path)}\``), `[\`${join(root, path)}\`](${href})`);
+    assert.equal(renderAbsolutePathLinks(`\`${join(root, path)}\``), `[\`${join(root, path)}\`](${href})${companion}`);
   }
+});
+
+test("pairs common parenthesized filenames and directories without truncating target URIs", () => {
+  for (const folder of ["output/chapter (1)", "output/chapter(2)"]) {
+    mkdirSync(join(root, folder));
+    const file = `${folder}/report (1).txt`;
+    writeFileSync(join(root, file), "ok");
+    const uri = pathToFileURL(join(root, file)).href;
+    const companion = ` [folder](<${pathToFileURL(join(root, folder)).href}>)`;
+    const expected = `[\`${file}\`](${uri})${companion}`;
+    assert.equal(renderPathLinks({ markdown: `\`${file}\``, cwd: root }), expected);
+    for (const primary of [`[report](${uri})`, `[report](<${uri}#L1>)`]) {
+      assert.equal(renderPathLinks({ markdown: primary, cwd: root }), primary + companion);
+      assert.equal(renderAbsolutePathLinks(primary), primary + companion);
+    }
+    assert.equal(renderAbsolutePathLinks(expected), expected);
+    assert.equal(renderPathLinks({ markdown: expected, cwd: root }), expected);
+  }
+  const file = "output/chapter(2)/report(2).txt";
+  writeFileSync(join(root, file), "ok");
+  const uri = pathToFileURL(join(root, file)).href;
+  const companion = ` [folder](<${pathToFileURL(join(root, "output/chapter(2)")).href}>)`;
+  assert.equal(renderPathLinks({ markdown: file, cwd: root }), `[${file}](${uri})${companion}`);
+  assert.equal(renderPathLinks({ markdown: `[report](${file})`, cwd: root }), `[report](${uri})${companion}`);
 });
 
 test("preserves explicit file URIs including navigation suffixes", () => {
   const href = pathToFileURL(join(root, "output/nested/result.txt")).href;
   for (const suffix of ["", "?line=2#L2"]) {
     const markdown = `[file](${href}${suffix})`;
+    assert.equal(renderPathLinks({ markdown, cwd: root }), `${markdown}${folderLink}`);
+    assert.equal(renderAbsolutePathLinks(markdown), `${markdown}${folderLink}`);
+  }
+});
+
+test("companions are per occurrence and require exact adjacency", () => {
+  const uri = pathToFileURL(join(root, "output/nested/result.txt")).href;
+  const first = `[first](${uri})`;
+  const second = `[second](<${uri}#L2>)`;
+  const sources = [
+    first + second,
+    `${first}${folderLink} ${second}`,
+    `${first} ${folderLink}`,
+    `${first}\n${folderLink}`,
+    `${first} [Folder](<${pathToFileURL(join(root, "output/nested")).href}>)`,
+    `${first} [folder](<${pathToFileURL(root).href}>)`,
+  ];
+  const expected = [
+    `${first}${folderLink}${second}${folderLink}`,
+    `${first}${folderLink} ${second}${folderLink}`,
+    `${first}${folderLink} ${folderLink}`,
+    `${first}${folderLink}\n${folderLink}`,
+    `${first}${folderLink} [Folder](<${pathToFileURL(join(root, "output/nested")).href}>)`,
+    `${first}${folderLink} [folder](<${pathToFileURL(root).href}>)`,
+  ];
+  sources.forEach((markdown, index) => {
+    const once = renderPathLinks({ markdown, cwd: root });
+    assert.equal(once, expected[index]);
+    for (let count = 0; count < 3; count++) {
+      assert.equal(renderAbsolutePathLinks(once), once);
+      assert.equal(renderPathLinks({ markdown: renderAbsolutePathLinks(once), cwd: root }), once);
+    }
+  });
+});
+
+test("explicit file URI decoding preserves bytes and existing exclusions", () => {
+  const file = join(root, "output/nested/研究 %20 #1.txt");
+  writeFileSync(file, "ok");
+  const uri = pathToFileURL(file).href.replace(/%[A-F0-9]{2}/g, (escape) => escape.toLowerCase());
+  const primary = `[Original label](<${uri}?line=2#L2>)`;
+  const paired = `${primary}${folderLink}`;
+  assert.equal(renderPathLinks({ markdown: primary, cwd: root }), paired);
+  assert.equal(renderAbsolutePathLinks(paired), paired);
+  for (const markdown of [
+    `![image](${uri})`,
+    `![image](<${uri}>)`,
+    `[directory](${pathToFileURL(join(root, "output/nested")).href})`,
+    `[web](https://example.com/file.txt)`,
+    `[missing](${pathToFileURL(join(root, "missing")).href})`,
+    `[malformed](file:///bad%)`,
+    `\`\`\`text\n${primary}\n\`\`\``,
+  ]) {
     assert.equal(renderPathLinks({ markdown, cwd: root }), markdown);
+    assert.equal(renderAbsolutePathLinks(markdown), markdown);
   }
 });
 
@@ -146,6 +225,36 @@ test("Pi overlay composes once, invalidates cached modes, and releases owners in
   }).render(300).join("\n");
   assert.match(composed, /file:\/\//);
   assert.match(composed, /\/output\/nested/);
+  assert.equal(composed.match(/folder/g)?.length, 1);
+
+  let inheritedCalls = 0;
+  const inherited = (markdown: string) => {
+    inheritedCalls++;
+    return renderPathLinks({ markdown, cwd: root });
+  };
+  const options = { transform: inherited };
+  const paired = renderPathLinks({ markdown: "`output/nested/result.txt`", cwd: root });
+  const rerendered = new Markdown(paired, 0, 0, plainMarkdownTheme, undefined, options);
+  for (const width of [300, 240, 300]) {
+    const output = rerendered.render(width).join("\n");
+    assert.equal(output.match(/folder/g)?.length, 1);
+    assert.ok(output.includes(pathToFileURL(file).href));
+    assert.ok(output.includes(pathToFileURL(join(root, "output/nested")).href));
+    assert.equal(options.transform, inherited);
+  }
+  assert.ok(inheritedCalls > 0);
+
+  const parenthesized = join(root, "output/chapter (3)/report (1).txt");
+  mkdirSync(join(root, "output/chapter (3)"));
+  writeFileSync(parenthesized, "ok");
+  const inheritedParentheses = new Markdown(`\`${parenthesized}\``, 0, 0, plainMarkdownTheme, undefined, options);
+  for (const width of [300, 240]) {
+    const output = inheritedParentheses.render(width).join("\n");
+    assert.equal(output.match(/folder/g)?.length, 1);
+    assert.ok(output.includes(pathToFileURL(parenthesized).href));
+    assert.ok(output.includes(pathToFileURL(join(root, "output/chapter (3)")).href));
+    assert.equal(options.transform, inherited);
+  }
 
   const relative = new Markdown("output/nested/result.txt", 0, 0, plainMarkdownTheme).render(300).join("\n");
   assert.doesNotMatch(relative, /file:\/\//);

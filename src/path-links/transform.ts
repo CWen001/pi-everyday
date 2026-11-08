@@ -1,10 +1,11 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const INLINE_CODE_RE = /`([^`\n]+)`/g;
-const MARKDOWN_LINK_RE = /(!?)\[([^\]]+)\]\(([^)\s]+)\)/g;
+// shortcut: bare targets support non-nested parentheses; use angle-bracket file URIs for deeper nesting.
+const MARKDOWN_LINK_RE = /(!?)\[([^\]]+)\]\((<[^>\n]+>|(?:[^()\s]|\([^()\s]*\))+)\)/g;
 const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/u;
 
 type ResolveTarget = (candidate: string) => string | undefined;
@@ -115,8 +116,33 @@ function linkStandaloneLines(markdown: string, resolveTarget: ResolveTarget): st
     .join("\n");
 }
 
+function appendFolderLinks(markdown: string): string {
+  return markdown.replace(
+    MARKDOWN_LINK_RE,
+    (full, imagePrefix: string, _label: string, target: string, offset: number) => {
+      if (imagePrefix || !/^<?file:/i.test(target)) return full;
+      let path: string;
+      try {
+        path = fileURLToPath(new URL(target.startsWith("<") ? target.slice(1, -1) : target));
+      } catch {
+        return full;
+      }
+      try {
+        if (!statSync(path).isFile()) return full;
+      } catch (error) {
+        if (isMissingPathError(error)) return full;
+        throw new PathLinkTransformError(path, { cause: error });
+      }
+      const companion = ` [folder](<${pathToFileURL(dirname(path)).href}>)`;
+      return markdown.startsWith(companion, offset + full.length) ? full : full + companion;
+    },
+  );
+}
+
 function transformOrdinaryMarkdown(markdown: string, resolveTarget: ResolveTarget): string {
-  return linkStandaloneLines(linkInlineCode(linkMarkdownTargets(markdown, resolveTarget), resolveTarget), resolveTarget);
+  return appendFolderLinks(
+    linkStandaloneLines(linkInlineCode(linkMarkdownTargets(markdown, resolveTarget), resolveTarget), resolveTarget),
+  );
 }
 
 function closingFenceMatches(line: string, opening: string): boolean {
