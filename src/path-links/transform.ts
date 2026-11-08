@@ -123,7 +123,9 @@ function appendFolderLinks(markdown: string): string {
       if (imagePrefix || !/^<?file:/i.test(target)) return full;
       let path: string;
       try {
-        path = fileURLToPath(new URL(target.startsWith("<") ? target.slice(1, -1) : target));
+        const uri = new URL(target.startsWith("<") ? target.slice(1, -1) : target);
+        if (uri.hostname || uri.pathname.startsWith("//")) return full;
+        path = fileURLToPath(uri);
       } catch {
         return full;
       }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import fs, { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -91,6 +92,45 @@ test("preserves explicit file URIs including navigation suffixes", () => {
     const markdown = `[file](${href}${suffix})`;
     assert.equal(renderPathLinks({ markdown, cwd: root }), `${markdown}${folderLink}`);
     assert.equal(renderAbsolutePathLinks(markdown), `${markdown}${folderLink}`);
+  }
+});
+
+for (const uri of [
+  "file://untrusted.invalid/share/report.txt",
+  "file://UNTRUSTED.invalid/share/report.txt?line=2#L2",
+  "file:////untrusted.invalid/share/report.txt",
+  "file://///untrusted.invalid/share/report.txt",
+  "file://localhost//untrusted.invalid/share/report.txt",
+]) {
+  test(`does not inspect explicit nonlocal URI ${uri}`, (t) => {
+    const attempted: unknown[] = [];
+    const stat = t.mock.method(fs, "statSync", (path: unknown) => {
+      attempted.push(path);
+      throw Object.assign(new Error("Filesystem inspection blocked by test"), { code: "ENOENT" });
+    });
+    syncBuiltinESMExports();
+    try {
+      for (const target of [uri, `<${uri}>`]) {
+        const markdown = `[Original label](${target})`;
+        assert.equal(renderPathLinks({ markdown, cwd: root }), markdown);
+        assert.equal(renderAbsolutePathLinks(markdown), markdown);
+      }
+    } finally {
+      stat.mock.restore();
+      syncBuiltinESMExports();
+    }
+    assert.deepEqual(attempted, []);
+  });
+}
+
+test("pairs explicit localhost file URIs without changing their bytes", () => {
+  const uri = pathToFileURL(join(root, "output/nested/result.txt")).href.replace("file:///", "file://localhost/");
+  for (const target of [uri, `<${uri}?line=2#L2>`]) {
+    const markdown = `[Original label](${target})`;
+    const paired = markdown + folderLink;
+    assert.equal(renderPathLinks({ markdown, cwd: root }), paired);
+    assert.equal(renderAbsolutePathLinks(markdown), paired);
+    assert.equal(renderAbsolutePathLinks(paired), paired);
   }
 });
 
