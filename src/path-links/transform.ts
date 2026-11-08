@@ -4,8 +4,8 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const INLINE_CODE_RE = /`([^`\n]+)`/g;
-// shortcut: bare targets support non-nested parentheses; use angle-bracket file URIs for deeper nesting.
-const MARKDOWN_LINK_RE = /(!?)\[([^\]]+)\]\((<[^>\n]+>|(?:[^()\s]|\([^()\s]*\))+)\)/g;
+// shortcut: plain labels and bare targets support one nesting level; use code labels or angle-bracket URIs for deeper nesting.
+const MARKDOWN_LINK_RE = /(!?)\[(`[^`\n]+`|(?:[^\[\]\n]|\[[^\[\]\n]*\])+)\]\((<[^>\n]+>|(?:[^()\s]|\([^()\s]*\))+)\)/g;
 const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/u;
 
 type ResolveTarget = (candidate: string) => string | undefined;
@@ -126,6 +126,7 @@ function appendFolderLinks(markdown: string): string {
         const uri = new URL(target.startsWith("<") ? target.slice(1, -1) : target);
         if (uri.hostname || uri.pathname.startsWith("//")) return full;
         path = fileURLToPath(uri);
+        if (path.includes("\0")) return full;
       } catch {
         return full;
       }

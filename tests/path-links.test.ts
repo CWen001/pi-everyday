@@ -7,8 +7,9 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Markdown, type MarkdownTheme } from "@earendil-works/pi-tui";
+import { acquirePathLinkOverlay } from "../src/path-links/overlay.ts";
 import { registerPathLinks } from "../src/path-links/register.ts";
-import { renderAbsolutePathLinks, renderPathLinks } from "../src/path-links/transform.ts";
+import { PathLinkTransformError, renderAbsolutePathLinks, renderPathLinks } from "../src/path-links/transform.ts";
 
 const root = join(tmpdir(), `pi-everyday-paths-${process.pid}`);
 const homeRoot = join(homedir(), `.pi-everyday-paths-${process.pid}`);
@@ -84,6 +85,91 @@ test("pairs common parenthesized filenames and directories without truncating ta
   const companion = ` [folder](<${pathToFileURL(join(root, "output/chapter(2)")).href}>)`;
   assert.equal(renderPathLinks({ markdown: file, cwd: root }), `[${file}](${uri})${companion}`);
   assert.equal(renderPathLinks({ markdown: `[report](${file})`, cwd: root }), `[report](${uri})${companion}`);
+});
+
+for (const inline of [true, false]) {
+  test(`pairs generated bracketed ${inline ? "inline" : "standalone"} labels without changing primary bytes`, () => {
+    const file = "output/nested/report[1].txt";
+    writeFileSync(join(root, file), "ok");
+    const uri = pathToFileURL(join(root, file)).href;
+    for (const path of [file, join(root, file)]) {
+      const label = inline ? `\`${path}\`` : path;
+      const primary = `[${label}](${uri})`;
+      const paired = primary + folderLink;
+      assert.equal(renderPathLinks({ markdown: label, cwd: root }), paired);
+      assert.equal(renderPathLinks({ markdown: primary, cwd: root }), paired);
+      if (path !== file) assert.equal(renderAbsolutePathLinks(label), paired);
+      let repeated = paired;
+      for (let count = 0; count < 3; count++) {
+        repeated = renderPathLinks({ markdown: renderAbsolutePathLinks(repeated), cwd: root });
+        assert.equal(repeated, paired);
+      }
+      for (const markdown of [
+        `!${primary}`,
+        `[${label}](https://example.com/report.txt)`,
+        `\`\`\`text\n${label}\n\`\`\``,
+      ]) {
+        assert.equal(renderPathLinks({ markdown, cwd: root }), markdown);
+        assert.equal(renderAbsolutePathLinks(markdown), markdown);
+      }
+    }
+  });
+}
+
+test("real Markdown overlay pairs bracketed labels through inherited and repeated transforms", () => {
+  const file = "output/nested/report[1].txt";
+  writeFileSync(join(root, file), "ok");
+  const uri = pathToFileURL(join(root, file)).href;
+  const release = acquirePathLinkOverlay();
+  try {
+    for (const source of [file, `\`${file}\``, join(root, file), `\`${join(root, file)}\``]) {
+      const inherited = (markdown: string) => renderPathLinks({ markdown, cwd: root });
+      const options = { transform: inherited };
+      const markdown = new Markdown(source, 0, 0, plainMarkdownTheme, undefined, options);
+      for (const width of [300, 240, 300]) {
+        const output = markdown.render(width).join("\n");
+        assert.equal(output.match(/folder/g)?.length, 1);
+        assert.ok(output.includes(uri));
+        assert.ok(output.includes(pathToFileURL(join(root, "output/nested")).href));
+        assert.equal(options.transform, inherited);
+      }
+    }
+  } finally {
+    release();
+  }
+});
+
+for (const absolute of [false, true]) {
+  test(`preserves encoded NUL occurrences without aborting ${absolute ? "absolute" : "ordinary"} rendering`, () => {
+    const uri = pathToFileURL(join(root, "output/nested/result.txt")).href;
+    const good = `[good](${uri})`;
+    for (const target of [`${uri}%00`, `<${uri}%00?line=2#L2>`]) {
+      const invalid = `[invalid](${target})`;
+      const markdown = `${good} ${invalid} ${good}`;
+      const paired = `${good}${folderLink} ${invalid} ${good}${folderLink}`;
+      const result = absolute ? renderAbsolutePathLinks(markdown) : renderPathLinks({ markdown, cwd: root });
+      assert.equal(result, paired);
+      assert.equal(renderAbsolutePathLinks(result), paired);
+      assert.equal(renderPathLinks({ markdown: result, cwd: root }), paired);
+    }
+  });
+}
+
+test("explicit file URI inspection still propagates genuine filesystem errors", (t) => {
+  const markdown = `[file](${pathToFileURL(join(root, "output/nested/result.txt")).href})`;
+  for (const code of ["EACCES", "EIO"]) {
+    const cause = Object.assign(new Error("Filesystem inspection failed"), { code });
+    const stat = t.mock.method(fs, "statSync", () => { throw cause; });
+    syncBuiltinESMExports();
+    try {
+      for (const render of [() => renderPathLinks({ markdown, cwd: root }), () => renderAbsolutePathLinks(markdown)]) {
+        assert.throws(render, (error: unknown) => error instanceof PathLinkTransformError && error.cause === cause);
+      }
+    } finally {
+      stat.mock.restore();
+      syncBuiltinESMExports();
+    }
+  }
 });
 
 test("preserves explicit file URIs including navigation suffixes", () => {
